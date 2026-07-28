@@ -7,18 +7,18 @@
 
 import * as vscode from 'vscode';
 import { execFile } from 'node:child_process';
-import { hostFromAuthority } from './authority';
+import { sshTargetFromAuthority, type SshTarget } from './authority';
 import { healthFromError } from './health';
 import type { Health } from './supervisor';
 
-/** The SSH host of a Remote-SSH window, e.g. `dev-box` — or undefined if this is not one. */
-export function sshHost(): string | undefined {
+/** The SSH target of a Remote-SSH window — or undefined if this is not one. */
+export function sshTarget(): SshTarget | undefined {
 	if (vscode.env.remoteName !== 'ssh-remote') {
 		return undefined;
 	}
 	// There is no public API for the remote authority, but a remote window's
 	// folders carry it: `vscode-remote://ssh-remote+<host>/path`.
-	return hostFromAuthority(vscode.workspace.workspaceFolders?.[0]?.uri.authority);
+	return sshTargetFromAuthority(vscode.workspace.workspaceFolders?.[0]?.uri.authority);
 }
 
 /** A remote path guaranteed to exist, used only to make the connection answer. */
@@ -78,20 +78,26 @@ function succeeds(file: string, args: string[], timeoutMs: number): Promise<bool
  * fatal error with no retry, so a reload into an unreachable host converts a
  * window that would have recovered into one that cannot.
  */
-export function checkHostReachable(host: string, timeoutMs: number, override: string): Promise<boolean> {
+export function checkHostReachable(target: SshTarget, timeoutMs: number, override: string): Promise<boolean> {
 	if (override.trim()) {
 		// The user's own machine-scoped command. A shell is what makes pipes and
 		// redirection work, which is the point of the escape hatch; the host is
 		// single-quoted so a hostname cannot end the quoting.
-		const command = override.replaceAll('${host}', `'${host.replaceAll("'", `'\\''`)}'`);
+		const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
+		const command = override
+			.replaceAll('${host}', quote(target.destination))
+			.replaceAll('${port}', quote(String(target.port ?? 22)));
 		return succeeds('/bin/sh', ['-c', command], timeoutMs);
 	}
 
-	return succeeds(
-		'ssh',
-		['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', '--', host, 'true'],
-		timeoutMs,
-	);
+	const args = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5'];
+	if (target.port !== undefined) {
+		args.push('-p', String(target.port));
+	}
+	// `--` so a destination starting with '-' cannot be read as a flag.
+	args.push('--', target.destination, 'true');
+
+	return succeeds('ssh', args, timeoutMs);
 }
 
 /** Whether any editor holds unsaved changes, including ones not currently visible. */

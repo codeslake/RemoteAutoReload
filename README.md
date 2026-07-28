@@ -79,7 +79,11 @@ matters because one of them names a command to run.
 | `remoteAutoReload.hostProbeTimeoutMs` | `8000` | Cap on the host probe. |
 | `remoteAutoReload.reloadWhenDirty` | `false` | Reload even with unsaved editors. Leave off. |
 | `remoteAutoReload.promptBeforeReload` | `false` | Always ask, even with nothing unsaved. |
-| `remoteAutoReload.hostProbeCommand` | `""` | Replaces the default probe. `${host}` is substituted (quoted). Empty means `ssh -o BatchMode=yes -o ConnectTimeout=5 <host> true`. |
+| `remoteAutoReload.hostProbeCommand` | `""` | Replaces the default probe. `${host}` becomes the ssh destination (including the user, e.g. `jun@box`) and `${port}` its port; both are shell-quoted. Empty means `ssh -o BatchMode=yes -o ConnectTimeout=5 <host> true`. |
+
+Hosts connected as `user@host`, on a non-default port, or with a capital letter
+in the name work too: Remote-SSH encodes those into the window's authority, and
+the encoding is decoded rather than taken literally.
 
 ## Commands
 

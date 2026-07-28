@@ -10,7 +10,8 @@
 
 import * as vscode from 'vscode';
 import { INITIAL, applyCommand, tick, type Command, type Config, type State } from './supervisor';
-import { checkHealth, checkHostReachable, isDirty, sshHost } from './probes';
+import { checkHealth, checkHostReachable, isDirty, sshTarget } from './probes';
+import type { SshTarget } from './authority';
 
 const SECTION = 'remoteAutoReload';
 
@@ -36,13 +37,13 @@ class Watcher {
 	private disposed = false;
 
 	constructor(
-		private readonly host: string,
+		private readonly target: SshTarget,
 		private readonly log: vscode.LogOutputChannel,
 		private readonly status: vscode.StatusBarItem,
 	) {}
 
 	start(): void {
-		this.log.info(`Watching ${this.host}`);
+		this.log.info(`Watching ${this.target.label}`);
 		this.render();
 		this.schedule(0);
 	}
@@ -92,7 +93,7 @@ class Watcher {
 			{
 				health: () => checkHealth(config.healthTimeoutMs),
 				hostReachable: () =>
-					checkHostReachable(this.host, config.hostProbeTimeoutMs, config.hostProbeCommand),
+					checkHostReachable(this.target, config.hostProbeTimeoutMs, config.hostProbeCommand),
 				isDirty,
 			},
 			config.policy,
@@ -136,7 +137,7 @@ class Watcher {
 				? 'Reloading would discard unsaved changes.'
 				: 'Reload to reconnect.';
 		const choice = await vscode.window.showWarningMessage(
-			`${this.host} is reachable again, but this window is still disconnected. ${detail}`,
+			`${this.target.label} is reachable again, but this window is still disconnected. ${detail}`,
 			'Reload Window',
 			'Save All and Reload',
 			'Not Now',
@@ -180,7 +181,7 @@ class Watcher {
 			idle: 'debug-pause',
 		}[this.state.kind];
 
-		this.status.text = `$(${icon}) ${this.host}`;
+		this.status.text = `$(${icon}) ${this.target.label}`;
 		this.status.tooltip = `RemoteAutoReload: ${this.describe()}`;
 		// Shown only when it has something to say, so a healthy window stays quiet.
 		if (this.state.kind === 'healthy') {
@@ -199,15 +200,15 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand(`${SECTION}.showLog`, () => log.show()),
 	);
 
-	const host = sshHost();
-	if (!host) {
+	const target = sshTarget();
+	if (!target) {
 		log.info(`Not a Remote-SSH window (remoteName: ${vscode.env.remoteName ?? 'local'}), standing by.`);
 		return;
 	}
 
 	const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
 	status.command = `${SECTION}.showLog`;
-	const watcher = new Watcher(host, log, status);
+	const watcher = new Watcher(target, log, status);
 	context.subscriptions.push(status, { dispose: () => watcher.dispose() });
 
 	context.subscriptions.push(

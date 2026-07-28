@@ -120,7 +120,7 @@
 					"type": "string",
 					"default": "",
 					"scope": "machine",
-					"markdownDescription": "Overrides how host reachability is probed. `${host}` is replaced with the SSH host of the current window. Leave empty to use `ssh -o BatchMode=yes -o ConnectTimeout=5 ${host} true`, which proves sshd is answering and accepts your key. It does not prove the VS Code server will start, so a host that is up with a wedged server is still reloaded into. Machine-scoped: a workspace cannot set this."
+					"markdownDescription": "Overrides how host reachability is probed. `${host}` becomes the ssh destination of the current window (including the user, e.g. `jun@box`) and `${port}` its port; both are shell-quoted. Leave empty to use `ssh -o BatchMode=yes -o ConnectTimeout=5 ${host} true`, which proves sshd is answering and accepts your key. It does not prove the VS Code server will start, so a host that is up with a wedged server is still reloaded into. Machine-scoped: a workspace cannot set this."
 				}
 			}
 		}
