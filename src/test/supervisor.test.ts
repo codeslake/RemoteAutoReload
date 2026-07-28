@@ -1,126 +1,269 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { tick, INITIAL, type Config, type Health, type Probes, type State } from '../supervisor';
+import {
+	INITIAL,
+	applyCommand,
+	tick,
+	type Action,
+	type Config,
+	type Health,
+	type Probes,
+	type State,
+} from '../supervisor';
 
 const CONFIG: Config = {
-	gracePeriodMs: 20_000,
+	graceTicks: 4,
 	reloadWhenDirty: false,
 	promptBeforeReload: false,
 };
 
-function probes(over: Partial<{ health: Health; hostReachable: boolean; dirty: boolean }> = {}): Probes {
+type ProbeOverrides = {
+	health: Health | (() => Promise<Health>);
+	hostReachable: boolean | (() => Promise<boolean>);
+	dirty: boolean;
+};
+
+function probes(over: Partial<ProbeOverrides> = {}): Probes {
 	const { health = 'healthy', hostReachable = true, dirty = false } = over;
 	return {
-		health: async () => health,
-		hostReachable: async () => hostReachable,
+		health: typeof health === 'function' ? health : async () => health,
+		hostReachable: typeof hostReachable === 'function' ? hostReachable : async () => hostReachable,
 		isDirty: () => dirty,
 	};
 }
 
-test('a brief outage does not reload: the window is given the grace period to heal itself', async () => {
-	const degradedAt = 1_000;
+/** Counts how often each probe is called, so ordering guarantees can be asserted. */
+function countingProbes(over: Partial<ProbeOverrides> = {}) {
+	const inner = probes(over);
+	const calls = { health: 0, hostReachable: 0, isDirty: 0 };
+	const counted: Probes = {
+		health: () => (calls.health++, inner.health()),
+		hostReachable: () => (calls.hostReachable++, inner.hostReachable()),
+		isDirty: () => (calls.isDirty++, inner.isDirty()),
+	};
+	return { probes: counted, calls };
+}
 
-	const first = await tick(INITIAL, probes({ health: 'unhealthy' }), CONFIG, degradedAt);
-	assert.deepEqual(first.state, { kind: 'degraded', since: degradedAt } satisfies State);
-	assert.equal(first.action.kind, 'none');
+/** Runs `count` ticks against unchanging probes, returning every action taken. */
+async function run(
+	from: State,
+	p: Probes,
+	count: number,
+	config: Config = CONFIG,
+): Promise<{ state: State; actions: Action[] }> {
+	let state = from;
+	const actions: Action[] = [];
+	for (let i = 0; i < count; i++) {
+		const out = await tick(state, p, config);
+		state = out.state;
+		actions.push(out.action);
+	}
+	return { state, actions };
+}
 
-	const stillWaiting = await tick(
-		first.state,
-		probes({ health: 'unhealthy' }),
-		CONFIG,
-		degradedAt + CONFIG.gracePeriodMs - 1,
-	);
-	assert.equal(stillWaiting.action.kind, 'none', 'must not reload before the grace period expires');
-	assert.deepEqual(
-		stillWaiting.state,
-		{ kind: 'degraded', since: degradedAt } satisfies State,
-		'the clock starts when the outage started, not when it was last observed',
-	);
+const reloads = (actions: Action[]) => actions.filter(a => a.kind === 'reload');
+const prompts = (actions: Action[]) => actions.filter(a => a.kind === 'prompt');
+
+test('a healthy window is left alone and never probes the host', async () => {
+	const { probes: p, calls } = countingProbes({ health: 'healthy' });
+
+	const { state, actions } = await run(INITIAL, p, 10);
+
+	assert.deepEqual(state, INITIAL);
+	assert.deepEqual(actions.map(a => a.kind), Array(10).fill('none'));
+	assert.equal(calls.hostReachable, 0, 'a healthy window must not spawn an ssh probe');
 });
 
-test('an outage that outlives the grace period reloads once the host is reachable', async () => {
-	const degraded: State = { kind: 'degraded', since: 1_000 };
-	const afterGrace = 1_000 + CONFIG.gracePeriodMs;
+test('a brief outage does not reload: the window is given the grace period to heal itself', async () => {
+	const { probes: p, calls } = countingProbes({ health: 'unhealthy' });
 
-	const out = await tick(degraded, probes({ health: 'unhealthy', hostReachable: true }), CONFIG, afterGrace);
+	const { state, actions } = await run(INITIAL, p, CONFIG.graceTicks - 1);
 
-	assert.equal(out.action.kind, 'reload');
-	assert.deepEqual(out.state, { kind: 'reloadPending' } satisfies State);
+	assert.deepEqual(actions.map(a => a.kind), Array(CONFIG.graceTicks - 1).fill('none'));
+	assert.deepEqual(state, { kind: 'degraded', ticks: CONFIG.graceTicks - 1 } satisfies State);
+	assert.equal(calls.hostReachable, 0, 'the host is not probed until the grace period is spent');
+});
+
+test('an outage that outlives the grace period reloads, once the host answers', async () => {
+	// graceTicks observations are spent waiting; the reload comes on the next one.
+	const { state, actions } = await run(INITIAL, probes({ health: 'unhealthy' }), CONFIG.graceTicks + 1);
+
+	assert.deepEqual(actions.map(a => a.kind), [...Array(CONFIG.graceTicks).fill('none'), 'reload']);
+	assert.deepEqual(state, { kind: 'reloadPending' } satisfies State);
+});
+
+test('the reload is requested exactly once, however long the outage lasts', async () => {
+	// The regression test for the defect this rewrite exists for: the original
+	// re-issued the reload every tick, so a reload VS Code refused (unsaved
+	// changes) became a dialog the user could not dismiss.
+	const { actions } = await run(INITIAL, probes({ health: 'unhealthy' }), 100);
+
+	assert.equal(reloads(actions).length, 1);
 });
 
 test('an unreachable host is never reloaded into: the one non-retried resolve is not spent on a doomed attempt', async () => {
-	const degraded: State = { kind: 'degraded', since: 1_000 };
-	const afterGrace = 1_000 + CONFIG.gracePeriodMs;
+	const { state, actions } = await run(INITIAL, probes({ health: 'unhealthy', hostReachable: false }), 20);
 
-	const out = await tick(degraded, probes({ health: 'unhealthy', hostReachable: false }), CONFIG, afterGrace);
-
-	assert.equal(out.action.kind, 'none');
-	assert.deepEqual(out.state, degraded, 'stays degraded so it can reload as soon as the host returns');
+	assert.equal(reloads(actions).length, 0);
+	assert.equal(state.kind, 'degraded', 'stays degraded so it can reload as soon as the host returns');
 });
 
-test('unsaved work is never discarded: a dirty window is asked, not reloaded', async () => {
-	const degraded: State = { kind: 'degraded', since: 1_000 };
-	const afterGrace = 1_000 + CONFIG.gracePeriodMs;
+test('the reload happens on the tick the host comes back', async () => {
+	let reachable = false;
+	const p = probes({ health: 'unhealthy', hostReachable: async () => reachable });
 
-	const out = await tick(degraded, probes({ health: 'unhealthy', dirty: true }), CONFIG, afterGrace);
+	const waiting = await run(INITIAL, p, 20);
+	assert.equal(reloads(waiting.actions).length, 0);
 
-	assert.deepEqual(out.action, { kind: 'prompt', reason: 'dirty' });
-	assert.deepEqual(
-		out.state,
-		{ kind: 'reloadPending' } satisfies State,
-		'asking is terminal too, so the prompt is raised once instead of every tick',
-	);
-});
-
-test('promptBeforeReload asks even with nothing unsaved', async () => {
-	const degraded: State = { kind: 'degraded', since: 1_000 };
-	const config: Config = { ...CONFIG, promptBeforeReload: true };
-
-	const out = await tick(degraded, probes({ health: 'unhealthy' }), config, 1_000 + config.gracePeriodMs);
-
-	assert.deepEqual(out.action, { kind: 'prompt', reason: 'configured' });
-});
-
-test('reloadWhenDirty opts out of the safety net', async () => {
-	const degraded: State = { kind: 'degraded', since: 1_000 };
-	const config: Config = { ...CONFIG, reloadWhenDirty: true };
-
-	const out = await tick(degraded, probes({ health: 'unhealthy', dirty: true }), config, 1_000 + config.gracePeriodMs);
+	reachable = true;
+	const out = await tick(waiting.state, p, CONFIG);
 
 	assert.equal(out.action.kind, 'reload');
 });
 
-test('a window that heals itself is not reloaded: recovery clears the degraded clock', async () => {
-	const degraded: State = { kind: 'degraded', since: 1_000 };
+test('unsaved work is never discarded: a dirty window is asked, not reloaded', async () => {
+	const { state, actions } = await run(INITIAL, probes({ health: 'unhealthy', dirty: true }), 20);
 
-	// Well past the grace period, but the channel is answering again — VS Code
-	// reconnected on its own, which is the common case and needs no reload.
-	const out = await tick(degraded, probes({ health: 'healthy' }), CONFIG, 1_000 + 3_600_000);
+	assert.equal(reloads(actions).length, 0);
+	assert.deepEqual(prompts(actions), [{ kind: 'prompt', reason: 'dirty' }]);
+	assert.equal(state.kind, 'reloadPending', 'asking is terminal too, so the prompt is raised once');
+});
 
-	assert.equal(out.action.kind, 'none');
-	assert.deepEqual(out.state, { kind: 'healthy' } satisfies State);
+test('promptBeforeReload asks even with nothing unsaved', async () => {
+	const config: Config = { ...CONFIG, promptBeforeReload: true };
+
+	const { actions } = await run(INITIAL, probes({ health: 'unhealthy' }), 20, config);
+
+	assert.deepEqual(prompts(actions), [{ kind: 'prompt', reason: 'configured' }]);
+});
+
+test('unsaved work outranks promptBeforeReload in the reason given', async () => {
+	const config: Config = { ...CONFIG, promptBeforeReload: true };
+
+	const { actions } = await run(INITIAL, probes({ health: 'unhealthy', dirty: true }), 20, config);
+
+	assert.deepEqual(prompts(actions), [{ kind: 'prompt', reason: 'dirty' }]);
+});
+
+test('reloadWhenDirty opts out of the safety net', async () => {
+	const config: Config = { ...CONFIG, reloadWhenDirty: true };
+
+	const { actions } = await run(INITIAL, probes({ health: 'unhealthy', dirty: true }), 20, config);
+
+	assert.equal(reloads(actions).length, 1);
+});
+
+test('a window that heals itself is not reloaded, however long it was degraded', async () => {
+	let health: Health = 'unhealthy';
+	const p = probes({ health: async () => health });
+
+	// Far past the grace period, but recovering before the host answers.
+	const degraded = await run(INITIAL, probes({ health: 'unhealthy', hostReachable: false }), 50);
+	health = 'healthy';
+	const { state, actions } = await run(degraded.state, p, 5);
+
+	assert.equal(reloads(actions).length, 0);
+	assert.deepEqual(state, { kind: 'healthy' } satisfies State);
 });
 
 test('a healed window degrades from scratch: the old outage does not count toward the new one', async () => {
-	const recovered = await tick({ kind: 'degraded', since: 1_000 }, probes({ health: 'healthy' }), CONFIG, 50_000);
-	const degradedAgain = await tick(recovered.state, probes({ health: 'unhealthy' }), CONFIG, 60_000);
+	const degraded = await run(INITIAL, probes({ health: 'unhealthy', hostReachable: false }), CONFIG.graceTicks - 1);
+	const recovered = await run(degraded.state, probes({ health: 'healthy' }), 1);
 
-	assert.deepEqual(degradedAgain.state, { kind: 'degraded', since: 60_000 } satisfies State);
-	assert.equal(degradedAgain.action.kind, 'none', 'the earlier outage must not carry over and trigger immediately');
+	const { actions } = await run(recovered.state, probes({ health: 'unhealthy' }), 1);
+
+	assert.equal(actions[0]?.kind, 'none', 'the earlier outage must not carry over and trigger immediately');
 });
 
-test('a reload is requested once and never repeated, so a blocked reload cannot loop', async () => {
+test('a window that reconnects while a reload is pending is watched again from a clean slate', async () => {
 	const pending: State = { kind: 'reloadPending' };
 
-	const out = await tick(pending, probes({ health: 'unhealthy' }), CONFIG, 10_000_000);
+	const { state } = await run(pending, probes({ health: 'healthy' }), 1);
 
-	assert.equal(out.action.kind, 'none');
-	assert.deepEqual(out.state, pending);
+	assert.deepEqual(state, { kind: 'healthy' } satisfies State);
 });
 
-test('a window that reconnects while a reload is pending stops asking', async () => {
-	const out = await tick({ kind: 'reloadPending' }, probes({ health: 'healthy' }), CONFIG, 10_000_000);
+test('a flapping connection does not re-ask after the user declines', async () => {
+	// The half-dead channel that answers intermittently is exactly what this
+	// extension is for, so recovery must not silently re-arm a declined window.
+	let health: Health = 'unhealthy';
+	const p = probes({ health: async () => health, dirty: true });
 
-	assert.equal(out.action.kind, 'none');
-	assert.deepEqual(out.state, { kind: 'healthy' } satisfies State, 'so the window is watched again from a clean slate');
+	const asked = await run(INITIAL, p, 20);
+	assert.equal(prompts(asked.actions).length, 1);
+	const declined = applyCommand(asked.state, 'decline');
+
+	let state = declined;
+	const actions: Action[] = [];
+	for (let cycle = 0; cycle < 5; cycle++) {
+		health = 'healthy';
+		const up = await run(state, p, 3);
+		health = 'unhealthy';
+		const down = await run(up.state, p, 20);
+		state = down.state;
+		actions.push(...up.actions, ...down.actions);
+	}
+
+	assert.equal(prompts(actions).length, 0, 'declining must hold across recovery, not just within one outage');
+	assert.equal(reloads(actions).length, 0);
+});
+
+test('a paused window is not watched at all', async () => {
+	const { probes: p, calls } = countingProbes({ health: 'unhealthy' });
+	const paused = applyCommand(INITIAL, 'pause');
+
+	const { state, actions } = await run(paused, p, 20);
+
+	assert.deepEqual(actions.map(a => a.kind), Array(20).fill('none'));
+	assert.equal(state.kind, 'idle');
+	assert.equal(calls.health, 0, 'a paused window must not probe anything');
+});
+
+test('resuming re-arms a declined or paused window', async () => {
+	for (const reason of ['decline', 'pause'] as const) {
+		const idle = applyCommand(INITIAL, reason);
+		const resumed = applyCommand(idle, 'resume');
+
+		assert.deepEqual(resumed, INITIAL, `${reason} must be undone by resume`);
+
+		const { actions } = await run(resumed, probes({ health: 'unhealthy' }), 20);
+		assert.equal(reloads(actions).length, 1, `${reason} then resume must watch the window again`);
+	}
+});
+
+test('a health probe that fails is not evidence either way: the window holds its state', async () => {
+	const failing = probes({ health: async () => { throw new Error('lsof exploded'); } });
+
+	const degraded = await run(INITIAL, probes({ health: 'unhealthy', hostReachable: false }), 2);
+	const { state, actions } = await run(degraded.state, failing, 50);
+
+	assert.deepEqual(actions.map(a => a.kind), Array(50).fill('none'));
+	assert.deepEqual(
+		state,
+		degraded.state,
+		'a broken probe must neither advance toward a reload nor clear a real outage',
+	);
+});
+
+test('a host probe that fails counts as unreachable, not as an error', async () => {
+	// `ssh host true` exits non-zero when the host is down, and exec rejects on
+	// non-zero exit — so the natural implementation rejects on the exact case
+	// the policy most needs to understand.
+	const p = probes({
+		health: 'unhealthy',
+		hostReachable: async () => { throw new Error('ssh: connect to host ... Network is unreachable'); },
+	});
+
+	const { state, actions } = await run(INITIAL, p, 20);
+
+	assert.equal(reloads(actions).length, 0);
+	assert.equal(state.kind, 'degraded');
+});
+
+test('graceTicks 0 reloads on the first unhealthy observation', async () => {
+	const config: Config = { ...CONFIG, graceTicks: 0 };
+
+	const { actions } = await run(INITIAL, probes({ health: 'unhealthy' }), 3, config);
+
+	assert.equal(actions[0]?.kind, 'reload');
 });

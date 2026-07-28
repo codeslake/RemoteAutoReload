@@ -5,7 +5,6 @@
 	"version": "0.1.0",
 	"publisher": "codeslake",
 	"license": "MIT",
-	"icon": "icon.png",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/codeslake/RemoteAutoReload.git"
@@ -14,7 +13,8 @@
 		"url": "https://github.com/codeslake/RemoteAutoReload/issues"
 	},
 	"engines": {
-		"vscode": "^1.75.0"
+		"vscode": "^1.75.0",
+		"node": ">=22"
 	},
 	"categories": [
 		"Other"
@@ -83,12 +83,12 @@
 					"scope": "machine",
 					"description": "How often to check the remote connection, in milliseconds."
 				},
-				"remoteAutoReload.gracePeriodMs": {
+				"remoteAutoReload.graceTicks": {
 					"type": "number",
-					"default": 20000,
+					"default": 4,
 					"minimum": 0,
 					"scope": "machine",
-					"markdownDescription": "How long the connection must stay unhealthy before a reload is considered. VS Code retries on its own for up to 3 hours, so a short outage usually heals without a reload. This grace period is what stops a self-healing window from being reloaded out from under you."
+					"markdownDescription": "How many consecutive failed checks before a reload is considered. VS Code retries on its own for up to 3 hours, so a short outage usually heals without a reload, and this grace period is what stops a self-healing window from being reloaded out from under you. Counted in checks rather than elapsed time so that a laptop which merely slept through the grace period does not skip it."
 				},
 				"remoteAutoReload.healthTimeoutMs": {
 					"type": "number",
@@ -120,7 +120,7 @@
 					"type": "string",
 					"default": "",
 					"scope": "machine",
-					"markdownDescription": "Overrides how host reachability is probed. `${host}` is replaced with the SSH host of the current window. Leave empty to use `ssh -o BatchMode=yes -o ConnectTimeout=5 ${host} true`. Machine-scoped: a workspace cannot set this."
+					"markdownDescription": "Overrides how host reachability is probed. `${host}` is replaced with the SSH host of the current window. Leave empty to use `ssh -o BatchMode=yes -o ConnectTimeout=5 ${host} true`, which proves sshd is answering and accepts your key. It does not prove the VS Code server will start, so a host that is up with a wedged server is still reloaded into. Machine-scoped: a workspace cannot set this."
 				}
 			}
 		}
@@ -128,8 +128,7 @@
 	"scripts": {
 		"compile": "tsc -p ./",
 		"watch": "tsc -watch -p ./",
-		"test": "npm run compile && node --test 'out/test/*.test.js'",
-		"lint": "eslint src --ext ts",
+		"test": "npm run compile && node --test out/test/*.test.js",
 		"vscode:prepublish": "npm run compile"
 	},
 	"devDependencies": {
