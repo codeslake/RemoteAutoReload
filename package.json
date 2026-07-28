@@ -1,0 +1,140 @@
+{
+	"name": "remote-auto-reload",
+	"displayName": "RemoteAutoReload",
+	"description": "Automatically reloads a Remote-SSH window when its connection is permanently lost and the host is reachable again.",
+	"version": "0.1.0",
+	"publisher": "codeslake",
+	"license": "MIT",
+	"icon": "icon.png",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/codeslake/RemoteAutoReload.git"
+	},
+	"bugs": {
+		"url": "https://github.com/codeslake/RemoteAutoReload/issues"
+	},
+	"engines": {
+		"vscode": "^1.75.0"
+	},
+	"categories": [
+		"Other"
+	],
+	"keywords": [
+		"remote",
+		"ssh",
+		"remote-ssh",
+		"reconnect",
+		"reload"
+	],
+	"main": "./out/extension.js",
+	"activationEvents": [
+		"onStartupFinished"
+	],
+	"extensionKind": [
+		"ui"
+	],
+	"capabilities": {
+		"untrustedWorkspaces": {
+			"supported": true,
+			"description": "Only machine-scoped settings are used; a workspace cannot influence what this extension runs."
+		}
+	},
+	"contributes": {
+		"commands": [
+			{
+				"command": "remoteAutoReload.showLog",
+				"title": "Show Log",
+				"category": "RemoteAutoReload"
+			},
+			{
+				"command": "remoteAutoReload.checkNow",
+				"title": "Check Connection Now",
+				"category": "RemoteAutoReload"
+			},
+			{
+				"command": "remoteAutoReload.reloadNow",
+				"title": "Reload Window Now",
+				"category": "RemoteAutoReload"
+			},
+			{
+				"command": "remoteAutoReload.pause",
+				"title": "Pause Watching This Window",
+				"category": "RemoteAutoReload"
+			},
+			{
+				"command": "remoteAutoReload.resume",
+				"title": "Resume Watching This Window",
+				"category": "RemoteAutoReload"
+			}
+		],
+		"configuration": {
+			"title": "RemoteAutoReload",
+			"properties": {
+				"remoteAutoReload.enabled": {
+					"type": "boolean",
+					"default": true,
+					"scope": "machine",
+					"description": "Watch Remote-SSH windows and reload them when the connection is permanently lost."
+				},
+				"remoteAutoReload.pollIntervalMs": {
+					"type": "number",
+					"default": 5000,
+					"minimum": 1000,
+					"scope": "machine",
+					"description": "How often to check the remote connection, in milliseconds."
+				},
+				"remoteAutoReload.gracePeriodMs": {
+					"type": "number",
+					"default": 20000,
+					"minimum": 0,
+					"scope": "machine",
+					"markdownDescription": "How long the connection must stay unhealthy before a reload is considered. VS Code retries on its own for up to 3 hours, so a short outage usually heals without a reload. This grace period is what stops a self-healing window from being reloaded out from under you."
+				},
+				"remoteAutoReload.healthTimeoutMs": {
+					"type": "number",
+					"default": 4000,
+					"minimum": 250,
+					"scope": "machine",
+					"description": "How long a remote health check may take before it counts as unhealthy, in milliseconds."
+				},
+				"remoteAutoReload.hostProbeTimeoutMs": {
+					"type": "number",
+					"default": 8000,
+					"minimum": 1000,
+					"scope": "machine",
+					"description": "How long the host reachability probe may take before it counts as unreachable, in milliseconds."
+				},
+				"remoteAutoReload.reloadWhenDirty": {
+					"type": "boolean",
+					"default": false,
+					"scope": "machine",
+					"markdownDescription": "Reload even when there are unsaved editors. Off by default: with unsaved changes the extension shows a notification and lets you decide, so a reload can never discard your work."
+				},
+				"remoteAutoReload.promptBeforeReload": {
+					"type": "boolean",
+					"default": false,
+					"scope": "machine",
+					"description": "Always ask before reloading, even when nothing is unsaved."
+				},
+				"remoteAutoReload.hostProbeCommand": {
+					"type": "string",
+					"default": "",
+					"scope": "machine",
+					"markdownDescription": "Overrides how host reachability is probed. `${host}` is replaced with the SSH host of the current window. Leave empty to use `ssh -o BatchMode=yes -o ConnectTimeout=5 ${host} true`. Machine-scoped: a workspace cannot set this."
+				}
+			}
+		}
+	},
+	"scripts": {
+		"compile": "tsc -p ./",
+		"watch": "tsc -watch -p ./",
+		"test": "npm run compile && node --test 'out/test/*.test.js'",
+		"lint": "eslint src --ext ts",
+		"vscode:prepublish": "npm run compile"
+	},
+	"devDependencies": {
+		"@types/node": "^22.0.0",
+		"@types/vscode": "^1.75.0",
+		"typescript": "^5.6.0"
+	}
+}
