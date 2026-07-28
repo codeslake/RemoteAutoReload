@@ -27,7 +27,11 @@ export interface SshTarget {
  * `user@host`, on a port, or to a host with a capital letter.
  */
 function decodeDescriptor(encoded: string): SshTarget | undefined {
-	if (encoded.length % 2 !== 0 || !/^[0-9a-f]+$/i.test(encoded)) {
+	// The encoding is always the hex of a JSON object, so it always begins with
+	// the hex of '{'. Requiring that keeps ordinary hex-looking hostnames —
+	// `cafe`, `deadbeef`, `1234` — from being mistaken for an encoding and
+	// refused, which would leave their owners with an inert extension.
+	if (!/^7b(?:[0-9a-f]{2})+$/i.test(encoded)) {
 		return undefined;
 	}
 
@@ -70,7 +74,8 @@ export function sshTargetFromAuthority(authority: string | undefined): SshTarget
 		return decoded;
 	}
 
-	// Hex that does not decode to a host descriptor is refused rather than
-	// guessed at, but a name that merely looks hex-ish is still a name.
-	return /^[0-9a-f]+$/i.test(rest) && rest.length % 2 === 0 ? undefined : { destination: rest, label: rest };
+	// Something that opens like an encoding but does not decode is refused rather
+	// than guessed at: probing an invented host answers confidently about a
+	// machine nobody asked about. Anything else is a plain hostname.
+	return /^7b(?:[0-9a-f]{2})+$/i.test(rest) ? undefined : { destination: rest, label: rest };
 }

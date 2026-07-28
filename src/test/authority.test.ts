@@ -56,23 +56,22 @@ test('a missing or malformed authority yields no target, rather than a broken on
 	}
 });
 
-test('hex that is not a host descriptor is refused rather than guessed at', () => {
+test('an encoding that does not decode is refused rather than guessed at', () => {
 	// Silence beats probing something invented: a wrong host answers confidently
 	// about a machine nobody asked about.
-	for (const bad of [
-		Buffer.from('not json', 'utf8').toString('hex'),
-		hex({ nothing: 'useful' }),
-		hex(['array']),
-		hex({ hostName: '' }),
-	]) {
+	for (const bad of [hex({ nothing: 'useful' }), hex({ hostName: '' }), hex({ hostName: 42 }), '7b7b7b']) {
 		assert.equal(sshTargetFromAuthority(`ssh-remote+${bad}`), undefined, `${bad} must not produce a target`);
 	}
 });
 
-test('an odd-length or non-hex blob is treated as a literal hostname', () => {
-	// Only even-length hex could be an encoding, so anything else is a name.
-	assert.deepEqual(sshTargetFromAuthority('ssh-remote+abc'), {
-		destination: 'abc',
-		label: 'abc',
-	} satisfies SshTarget);
+test('an ordinary hostname that happens to look like hex is still a hostname', () => {
+	// `cafe`, `deadbeef` and `1234` are all valid even-length hex. Treating them
+	// as a failed encoding would leave their owners with an inert extension.
+	for (const name of ['cafe', 'deadbeef', '1234', 'face', 'abc', 'dbcc']) {
+		assert.deepEqual(
+			sshTargetFromAuthority(`ssh-remote+${name}`),
+			{ destination: name, label: name } satisfies SshTarget,
+			`${name} is a hostname, not an encoding`,
+		);
+	}
 });
