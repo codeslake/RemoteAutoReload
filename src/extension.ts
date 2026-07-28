@@ -21,11 +21,11 @@ function settings() {
 	return {
 		enabled: c.get<boolean>('enabled', true),
 		pollIntervalMs: c.get<number>('pollIntervalMs', 5000),
-		healthTimeoutMs: c.get<number>('healthTimeoutMs', 4000),
+		healthTimeoutMs: c.get<number>('healthTimeoutMs', 10_000),
 		hostProbeTimeoutMs: c.get<number>('hostProbeTimeoutMs', 8000),
 		hostProbeCommand: c.get<string>('hostProbeCommand', ''),
 		policy: {
-			graceTicks: c.get<number>('graceTicks', 4),
+			graceTicks: c.get<number>('graceTicks', 12),
 			reloadWhenDirty: c.get<boolean>('reloadWhenDirty', false),
 			promptBeforeReload: c.get<boolean>('promptBeforeReload', false),
 		} satisfies Config,

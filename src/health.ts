@@ -21,14 +21,28 @@ import type { Health } from './supervisor';
 const REPLIED = new Set(['FileNotFound', 'FileExists', 'FileNotADirectory', 'FileIsADirectory', 'NoPermissions']);
 
 /**
+ * Codes that mean the connection is gone.
+ *
+ * `Unavailable` is the headline case: the `vscode-remote://` provider is
+ * unregistered, reported as ENOPRO and mapped here. `Unknown` is a call cut off
+ * mid-flight. Both are what a window sitting on the "could not establish
+ * connection" dialog produces.
+ */
+const GONE = new Set(['Unavailable', 'Unknown']);
+
+/**
  * What a rejected `stat` says about the connection.
  *
- * Anything not in REPLIED is read as unhealthy. A dropped connection arrives as
- * `Unavailable` (the `vscode-remote://` provider is unregistered, reported as
- * ENOPRO and mapped to Unavailable) or as `Unknown` (the channel was cancelled
- * mid-call). Unknown codes count against the connection on purpose:
- * a new code we have never seen is not evidence that the link is fine.
+ * Deliberately three-valued. A code we do not recognise is not evidence the link
+ * is dead any more than it is evidence the link is fine, and guessing 'dead'
+ * would reload a working window — the one outcome worse than doing nothing.
  */
 export function healthFromError(code: string | undefined): Health {
-	return code !== undefined && REPLIED.has(code) ? 'healthy' : 'unhealthy';
+	if (code === undefined) {
+		return 'unknown';
+	}
+	if (REPLIED.has(code)) {
+		return 'healthy';
+	}
+	return GONE.has(code) ? 'unhealthy' : 'unknown';
 }

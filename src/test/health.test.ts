@@ -20,9 +20,10 @@ test('a cancelled channel is the other disconnected shape', () => {
 	assert.equal(healthFromError('Unknown'), 'unhealthy');
 });
 
-test('an unrecognised or absent code counts against the connection', () => {
-	// A code we have never seen is not evidence that the link is fine.
+test('an unrecognised or absent code decides nothing', () => {
+	// Not evidence the link is dead any more than evidence it is fine, and
+	// guessing 'dead' would reload a working window.
 	for (const code of ['SomethingNew', 'WeirdCode', '', undefined]) {
-		assert.equal(healthFromError(code), 'unhealthy', `${String(code)} must not be read as healthy`);
+		assert.equal(healthFromError(code), 'unknown', `${String(code)} must not decide either way`);
 	}
 });

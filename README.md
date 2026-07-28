@@ -31,9 +31,15 @@ Every few seconds, in Remote-SSH windows only:
 1. **Is this window's channel answering?** Asked with `workspace.fs`, which
    travels the exact connection VS Code uses. No process scraping, so nothing to
    confuse when several windows are open to the same host.
-2. **If not, has it been failing long enough?** Five consecutive failed checks by
-   default. Short blips heal on their own, and waiting is what keeps them from
-   being reloaded out from under you.
+
+   A dropped connection *refuses* the call at once, because the remote provider
+   is unregistered. A call that merely takes a long time means something else:
+   the remote is loaded and its extension host is briefly unresponsive. That is
+   held as "no answer" and counts toward nothing, because reloading a window
+   that was only slow is worse than doing nothing.
+2. **If not, has it been failing long enough?** Thirteen consecutive refusals by
+   default, about a minute. Short outages heal on their own, and waiting is what
+   keeps them from being reloaded out from under you.
 3. **Is the host actually reachable?** `ssh <host> true`. A reload spends the one
    resolve attempt VS Code will not retry, so it is not spent on a host that
    cannot answer.
@@ -75,8 +81,8 @@ matters because one of them names a command to run.
 |---|---|---|
 | `remoteAutoReload.enabled` | `true` | Master switch. |
 | `remoteAutoReload.pollIntervalMs` | `5000` | How often to check. |
-| `remoteAutoReload.graceTicks` | `4` | Failed checks to wait out before a reload is considered; the reload comes on the next one. Counted in checks, not elapsed time, so sleeping through the grace period does not skip it. |
-| `remoteAutoReload.healthTimeoutMs` | `4000` | A health check slower than this counts as failed. A dead channel does not refuse, it goes quiet, so the timeout is what produces the answer. |
+| `remoteAutoReload.graceTicks` | `12` | Failed checks to wait out before a reload is considered; the reload comes on the next one. Counted in checks, not elapsed time, so sleeping through the grace period does not skip it. |
+| `remoteAutoReload.healthTimeoutMs` | `10000` | A health check slower than this is inconclusive, not failed: a dead channel refuses at once, so a slow one means a loaded remote. |
 | `remoteAutoReload.hostProbeTimeoutMs` | `8000` | Cap on the host probe. |
 | `remoteAutoReload.reloadWhenDirty` | `false` | Reload even with unsaved editors. Leave off. |
 | `remoteAutoReload.promptBeforeReload` | `false` | Always ask, even with nothing unsaved. |
@@ -104,8 +110,8 @@ spinner, and the log fills in:
 
 ```
 Watching dev-box
-unhealthy 1/5, waiting for VS Code to reconnect on its own
-unhealthy 2/5, waiting for VS Code to reconnect on its own
+unhealthy 1/13, waiting for VS Code to reconnect on its own
+unhealthy 2/13, waiting for VS Code to reconnect on its own
 ...
 host still unreachable, not spending the one resolve attempt
 host reachable, reloading
@@ -130,8 +136,12 @@ Log**). It should open with `Watching <host>`; anything else says why not:
 
 **It waits too long / too little.** `(graceTicks + 1)` × `pollIntervalMs` is
 roughly how long an outage must last before anything happens. The default is
-about 25 seconds, deliberately longer than a blip and shorter than your
-patience.
+about a minute, deliberately longer than a blip and shorter than your patience.
+
+**It never fires even though the window is clearly disconnected.** Check the log
+for `no answer either way, holding state` repeating. That means the probe is
+timing out rather than being refused, which is the signature of a remote that is
+alive but very slow. Raise `healthTimeoutMs`.
 
 **It says `host still unreachable` but I can ssh in fine.** The probe runs
 `ssh -o BatchMode=yes`, which cannot answer a passphrase prompt. If your key

@@ -85,17 +85,17 @@
 				},
 				"remoteAutoReload.graceTicks": {
 					"type": "number",
-					"default": 4,
+					"default": 12,
 					"minimum": 0,
 					"scope": "machine",
-					"markdownDescription": "How many consecutive failed checks before a reload is considered. VS Code retries on its own for up to 3 hours, so a short outage usually heals without a reload, and this grace period is what stops a self-healing window from being reloaded out from under you. Counted in checks rather than elapsed time so that a laptop which merely slept through the grace period does not skip it."
+					"markdownDescription": "How many consecutive failed checks to wait out before a reload is considered; the reload comes on the next one. VS Code retries on its own for up to 3 hours, so a short outage usually heals without a reload, and this grace period is what stops a self-healing window from being reloaded out from under you. Counted in checks rather than elapsed time so that a laptop which merely slept through the grace period does not skip it."
 				},
 				"remoteAutoReload.healthTimeoutMs": {
 					"type": "number",
-					"default": 4000,
+					"default": 10000,
 					"minimum": 250,
 					"scope": "machine",
-					"description": "How long a remote health check may take before it counts as unhealthy, in milliseconds."
+					"description": "How long a health check may take before it counts as inconclusive, in milliseconds. A dropped connection refuses at once, so a check that merely runs long means the remote is loaded, not gone — that is held, never counted toward a reload."
 				},
 				"remoteAutoReload.hostProbeTimeoutMs": {
 					"type": "number",

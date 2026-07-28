@@ -35,8 +35,12 @@ function remoteFolder(): vscode.Uri | undefined {
  * an ssh process: a pid has to be guessed, and guessing picks another window's
  * tunnel when several are open to the same host.
  *
- * A disconnected channel does not fail fast, it simply never answers, so the
- * timeout is what turns silence into an answer.
+ * A dropped connection refuses rather than hangs — the `vscode-remote://`
+ * provider is unregistered, so the call comes back at once with `Unavailable`.
+ * Silence means something else: a remote that is loaded, whose extension host is
+ * briefly unresponsive. VS Code says as much in its own log, and reading that as
+ * a disconnect reloads windows that were working. So a timeout is `unknown`, not
+ * `unhealthy`.
  */
 export async function checkHealth(timeoutMs: number): Promise<Health> {
 	const target = remoteFolder();
@@ -46,7 +50,7 @@ export async function checkHealth(timeoutMs: number): Promise<Health> {
 
 	let timer: NodeJS.Timeout | undefined;
 	const timeout = new Promise<Health>(resolve => {
-		timer = setTimeout(() => resolve('unhealthy'), timeoutMs);
+		timer = setTimeout(() => resolve('unknown'), timeoutMs);
 	});
 
 	const stat = Promise.resolve(vscode.workspace.fs.stat(target)).then(

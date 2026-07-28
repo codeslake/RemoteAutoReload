@@ -5,8 +5,15 @@
  * so the policy can be exercised without a window, a network, or a clock.
  */
 
-/** Result of asking "is this window's remote channel answering?". */
-export type Health = 'healthy' | 'unhealthy';
+/**
+ * Result of asking "is this window's remote channel answering?".
+ *
+ * `unknown` is the answer that matters most in practice: a busy remote is slow,
+ * not gone, and reading slowness as a disconnect reloads working windows. A
+ * genuine disconnect refuses immediately, because the provider is unregistered;
+ * only a live-but-loaded remote leaves the question hanging.
+ */
+export type Health = 'healthy' | 'unhealthy' | 'unknown';
 
 export type State =
 	/** The remote channel answered on the last tick. */
@@ -98,11 +105,11 @@ export async function tick(state: State, probes: Probes, config: Config): Promis
 		return unchanged();
 	}
 
-	const health = await probes.health().catch(() => undefined);
-	if (health === undefined) {
+	const health = await probes.health().catch(() => 'unknown' as const);
+	if (health === 'unknown') {
 		// Neither answer is safe to assume: 'healthy' would clear a real outage,
 		// 'unhealthy' would march a working window toward a reload.
-		return unchanged('health probe failed, holding state');
+		return unchanged('no answer either way, holding state');
 	}
 
 	// A window that answers needs nothing, whatever it needed before. The absence

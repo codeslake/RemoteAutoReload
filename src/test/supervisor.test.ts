@@ -231,6 +231,50 @@ test('resuming re-arms a declined or paused window', async () => {
 	}
 });
 
+test('a slow remote is not a gone remote: unknown holds the state', async () => {
+	// A loaded remote goes briefly unresponsive; VS Code says so in its own log.
+	// Counting that as a disconnect reloads windows that were working, which is
+	// what this extension exists to avoid doing.
+	const degraded = await run(INITIAL, probes({ health: 'unhealthy', hostReachable: false }), 2);
+	const { state, actions } = await run(degraded.state, probes({ health: 'unknown' }), 50);
+
+	assert.deepEqual(actions.map(a => a.kind), Array(50).fill('none'));
+	assert.deepEqual(state, degraded.state, 'no progress toward a reload, and no reset either');
+});
+
+test('the measured dev-box incident: a remote that stutters every two minutes is left alone', async () => {
+	// Taken from a real night of logs. The remote extension host went briefly
+	// unresponsive on a ~2-minute cycle (VS Code said so in its own log), the
+	// probe timed out each time, and three working windows were reloaded.
+	// Timings measured: ~14-38s unresponsive, ~75-120s apart.
+	const STUTTER_TICKS = Math.ceil(38_000 / 5_000); // the longest stall seen
+	const CALM_TICKS = Math.ceil(75_000 / 5_000);
+
+	let state = INITIAL;
+	const actions: Action[] = [];
+	for (let cycle = 0; cycle < 20; cycle++) {
+		for (const [health, count] of [
+			['unknown', STUTTER_TICKS],
+			['healthy', CALM_TICKS],
+		] as const) {
+			const out = await run(state, probes({ health }), count);
+			state = out.state;
+			actions.push(...out.actions);
+		}
+	}
+
+	assert.equal(reloads(actions).length, 0, 'a stuttering remote must never be reloaded');
+	assert.equal(prompts(actions).length, 0);
+	assert.deepEqual(state, INITIAL);
+});
+
+test('a healthy window that goes slow is not marched toward a reload', async () => {
+	const { state, actions } = await run(INITIAL, probes({ health: 'unknown' }), 50);
+
+	assert.equal(reloads(actions).length, 0);
+	assert.deepEqual(state, INITIAL);
+});
+
 test('a health probe that fails is not evidence either way: the window holds its state', async () => {
 	const failing = probes({ health: async () => { throw new Error('lsof exploded'); } });
 
