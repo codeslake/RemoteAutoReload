@@ -17,14 +17,14 @@ export function sshTarget(): SshTarget | undefined {
 		return undefined;
 	}
 	// There is no public API for the remote authority, but a remote window's
-	// folders carry it: `vscode-remote://ssh-remote+<host>/path`.
-	return sshTargetFromAuthority(vscode.workspace.workspaceFolders?.[0]?.uri.authority);
+	// folders carry it: `vscode-remote://ssh-remote+<host>/path`. Taken from the
+	// first REMOTE folder, since a multi-root window may list a local one first.
+	return sshTargetFromAuthority(remoteFolder()?.authority);
 }
 
-/** A remote path guaranteed to exist, used only to make the connection answer. */
-function probeTarget(): vscode.Uri | undefined {
-	const folder = vscode.workspace.workspaceFolders?.[0]?.uri;
-	return folder?.scheme === 'vscode-remote' ? folder : undefined;
+/** The window's first remote folder, which is both the probe target and the host. */
+function remoteFolder(): vscode.Uri | undefined {
+	return vscode.workspace.workspaceFolders?.find(f => f.uri.scheme === 'vscode-remote')?.uri;
 }
 
 /**
@@ -39,7 +39,7 @@ function probeTarget(): vscode.Uri | undefined {
  * timeout is what turns silence into an answer.
  */
 export async function checkHealth(timeoutMs: number): Promise<Health> {
-	const target = probeTarget();
+	const target = remoteFolder();
 	if (!target) {
 		return 'unhealthy';
 	}
@@ -65,9 +65,10 @@ export async function checkHealth(timeoutMs: number): Promise<Health> {
 
 /** Runs a command, resolving to its success rather than throwing on failure. */
 function succeeds(file: string, args: string[], timeoutMs: number): Promise<boolean> {
+	// execFile routes a failed spawn to the callback too, so a non-zero exit, a
+	// timeout, and a missing binary all arrive the same way: as "no".
 	return new Promise(resolve => {
-		const child = execFile(file, args, { timeout: timeoutMs, killSignal: 'SIGKILL' }, err => resolve(!err));
-		child.on('error', () => resolve(false));
+		execFile(file, args, { timeout: timeoutMs, killSignal: 'SIGKILL' }, err => resolve(!err));
 	});
 }
 
@@ -84,9 +85,11 @@ export function checkHostReachable(target: SshTarget, timeoutMs: number, overrid
 		// redirection work, which is the point of the escape hatch; the host is
 		// single-quoted so a hostname cannot end the quoting.
 		const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
-		const command = override
-			.replaceAll('${host}', quote(target.destination))
-			.replaceAll('${port}', quote(String(target.port ?? 22)));
+		// One pass, so a value that itself contains `${port}` is not rewritten by
+		// the next substitution.
+		const command = override.replace(/\$\{(host|port)\}/g, (_, key: string) =>
+			quote(key === 'host' ? target.destination : String(target.port ?? 22)),
+		);
 		return succeeds('/bin/sh', ['-c', command], timeoutMs);
 	}
 

@@ -11,6 +11,7 @@
 import * as vscode from 'vscode';
 import { INITIAL, applyCommand, tick, type Command, type Config, type State } from './supervisor';
 import { checkHealth, checkHostReachable, isDirty, sshTarget } from './probes';
+import { Loop } from './loop';
 import type { SshTarget } from './authority';
 
 const SECTION = 'remoteAutoReload';
@@ -33,24 +34,34 @@ function settings() {
 
 class Watcher {
 	private state: State = INITIAL;
-	private timer: NodeJS.Timeout | undefined;
 	private disposed = false;
+	private readonly loop: Loop;
 
 	constructor(
 		private readonly target: SshTarget,
 		private readonly log: vscode.LogOutputChannel,
 		private readonly status: vscode.StatusBarItem,
-	) {}
+	) {
+		this.loop = new Loop({
+			run: () => this.run(),
+			delayMs: () => settings().pollIntervalMs,
+			// An unexpected failure is reported and the loop carries on. Going
+			// quiet here would look exactly like a healthy window.
+			onError: err => this.log.error(`Check failed: ${String(err)}`),
+			setTimeout: (fn, ms) => setTimeout(fn, ms),
+			clearTimeout: handle => clearTimeout(handle as NodeJS.Timeout),
+		});
+	}
 
 	start(): void {
 		this.log.info(`Watching ${this.target.label}`);
 		this.render();
-		this.schedule(0);
+		this.loop.start();
 	}
 
 	dispose(): void {
 		this.disposed = true;
-		clearTimeout(this.timer);
+		this.loop.stop();
 	}
 
 	/** Applies a user command and reports the resulting state. */
@@ -60,20 +71,9 @@ class Watcher {
 		this.render();
 	}
 
-	/** Runs one tick now, out of band, and reschedules around it. */
-	async checkNow(): Promise<void> {
-		clearTimeout(this.timer);
-		await this.run();
-	}
-
-	private schedule(delayMs: number): void {
-		if (this.disposed) {
-			return;
-		}
-		// Self-rescheduling rather than setInterval: a tick can outlast the poll
-		// interval (both probes have their own timeouts), and two ticks reading
-		// the same state would both decide to reload.
-		this.timer = setTimeout(() => void this.run(), delayMs);
+	/** Runs one tick now, out of band, joining one already under way. */
+	checkNow(): Promise<void> {
+		return this.loop.runNow();
 	}
 
 	private async run(): Promise<void> {
@@ -83,7 +83,6 @@ class Watcher {
 
 		const config = settings();
 		if (!config.enabled) {
-			this.schedule(config.pollIntervalMs);
 			return;
 		}
 
@@ -119,11 +118,9 @@ class Watcher {
 				await vscode.commands.executeCommand('workbench.action.reloadWindow');
 				break;
 			case 'prompt':
-				void this.ask(outcome.action.reason);
+				this.ask(outcome.action.reason).catch(err => this.log.error(`Prompt failed: ${String(err)}`));
 				break;
 		}
-
-		this.schedule(config.pollIntervalMs);
 	}
 
 	/**
@@ -157,7 +154,12 @@ class Watcher {
 
 		// Dismissing counts as declining: a half-dead link recovers intermittently,
 		// and a window whose owner said no must not be asked again on every blip.
-		this.command('decline');
+		// But only while the question still stands — the connection may have come
+		// back while the notification sat there, and dismissing a stale prompt
+		// must not switch off a window that is working.
+		if (this.state.kind === 'reloadPending') {
+			this.command('decline');
+		}
 	}
 
 	private describe(): string {
@@ -202,7 +204,14 @@ export function activate(context: vscode.ExtensionContext): void {
 
 	const target = sshTarget();
 	if (!target) {
-		log.info(`Not a Remote-SSH window (remoteName: ${vscode.env.remoteName ?? 'local'}), standing by.`);
+		// Distinguished so a field report is not sent chasing the wrong thing: a
+		// remote window with no remote folder has no URI to probe, which is a
+		// different situation from a local window.
+		log.info(
+			vscode.env.remoteName === 'ssh-remote'
+				? 'Remote-SSH window with no remote folder open; there is nothing to probe.'
+				: `Not a Remote-SSH window (remoteName: ${vscode.env.remoteName ?? 'local'}), standing by.`,
+		);
 		return;
 	}
 

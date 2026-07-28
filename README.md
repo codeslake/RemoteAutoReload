@@ -31,9 +31,9 @@ Every few seconds, in Remote-SSH windows only:
 1. **Is this window's channel answering?** Asked with `workspace.fs`, which
    travels the exact connection VS Code uses. No process scraping, so nothing to
    confuse when several windows are open to the same host.
-2. **If not, has it been failing long enough?** Four consecutive failed checks by
-   default. Short blips heal on their own and this is what keeps them from being
-   reloaded out from under you.
+2. **If not, has it been failing long enough?** Five consecutive failed checks by
+   default. Short blips heal on their own, and waiting is what keeps them from
+   being reloaded out from under you.
 3. **Is the host actually reachable?** `ssh <host> true`. A reload spends the one
    resolve attempt VS Code will not retry, so it is not spent on a host that
    cannot answer.
@@ -61,9 +61,10 @@ npx @vscode/vsce package
 code --install-extension remote-auto-reload-*.vsix
 ```
 
-Requires VS Code 1.75+, and `ssh` on your `PATH` (the same one Remote-SSH uses).
-Node 22+ only to build. The extension runs on the **local** machine, so install
-it locally, not in the remote.
+Requires VS Code 1.75+ and `ssh` on your `PATH`; Node 22+ only to build. The
+extension runs on the **local** machine, so install it locally, not in the
+remote. If you point Remote-SSH at a different ssh binary with
+`remote.SSH.path`, point `hostProbeCommand` at that one too.
 
 ## Settings
 
@@ -74,7 +75,7 @@ matters because one of them names a command to run.
 |---|---|---|
 | `remoteAutoReload.enabled` | `true` | Master switch. |
 | `remoteAutoReload.pollIntervalMs` | `5000` | How often to check. |
-| `remoteAutoReload.graceTicks` | `4` | Consecutive failed checks before a reload is considered. Counted in checks, not elapsed time, so sleeping through the grace period does not skip it. |
+| `remoteAutoReload.graceTicks` | `4` | Failed checks to wait out before a reload is considered; the reload comes on the next one. Counted in checks, not elapsed time, so sleeping through the grace period does not skip it. |
 | `remoteAutoReload.healthTimeoutMs` | `4000` | A health check slower than this counts as failed. A dead channel does not refuse, it goes quiet, so the timeout is what produces the answer. |
 | `remoteAutoReload.hostProbeTimeoutMs` | `8000` | Cap on the host probe. |
 | `remoteAutoReload.reloadWhenDirty` | `false` | Reload even with unsaved editors. Leave off. |
@@ -118,13 +119,19 @@ nothing is correct.
 ## Troubleshooting
 
 **Nothing happens when I disconnect.** Check the log (**RemoteAutoReload: Show
-Log**). If it says `Not a Remote-SSH window`, the extension installed into the
-remote instead of locally — it must run on the local machine. If there are no
-lines at all, it never activated; check it is enabled in the Extensions view.
+Log**). It should open with `Watching <host>`; anything else says why not:
 
-**It waits too long / too little.** `graceTicks` × `pollIntervalMs` is roughly
-how long an outage must last before anything happens. The default is about 20
-seconds, deliberately longer than a blip and shorter than your patience.
+- `Not a Remote-SSH window` in a window that *is* remote means the extension
+  installed into the remote instead of locally. It must run on the local machine.
+- `no remote folder open` means the window has no folder to probe. Open the
+  folder you work in and it starts watching.
+- No lines at all means it never activated; check it is enabled in the
+  Extensions view.
+
+**It waits too long / too little.** `(graceTicks + 1)` × `pollIntervalMs` is
+roughly how long an outage must last before anything happens. The default is
+about 25 seconds, deliberately longer than a blip and shorter than your
+patience.
 
 **It says `host still unreachable` but I can ssh in fine.** The probe runs
 `ssh -o BatchMode=yes`, which cannot answer a passphrase prompt. If your key
@@ -171,9 +178,15 @@ npm test        # compiles, then runs node:test — no VS Code needed
 npm run watch
 ```
 
-The reload policy lives in `src/supervisor.ts` as a pure state machine with all
-I/O injected, so the interesting behaviour is tested without a window, a network,
-or a clock. `src/probes.ts` answers its questions using VS Code and `ssh`;
+Everything with a decision in it is a module with no VS Code import, so it is
+tested directly:
+
+- `src/supervisor.ts` — the reload policy, a pure state machine with all I/O injected
+- `src/authority.ts` — reading the SSH host out of a remote authority, including the encoded form
+- `src/health.ts` — what a filesystem error code says about the connection
+- `src/loop.ts` — running one tick at a time, with the timer injected
+
+`src/probes.ts` answers the policy's questions using VS Code and `ssh`;
 `src/extension.ts` is wiring.
 
 ## License

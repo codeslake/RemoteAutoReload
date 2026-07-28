@@ -23,9 +23,10 @@ const REPLIED = new Set(['FileNotFound', 'FileExists', 'FileNotADirectory', 'Fil
 /**
  * What a rejected `stat` says about the connection.
  *
- * Anything not in REPLIED — `Unavailable`, `ENOPRO` (no provider registered for
- * `vscode-remote://`, i.e. the remote side is gone), or an unrecognised code —
- * is read as unhealthy. Unknown codes count against the connection on purpose:
+ * Anything not in REPLIED is read as unhealthy. A dropped connection arrives as
+ * `Unavailable` (the `vscode-remote://` provider is unregistered, reported as
+ * ENOPRO and mapped to Unavailable) or as `Unknown` (the channel was cancelled
+ * mid-call). Unknown codes count against the connection on purpose:
  * a new code we have never seen is not evidence that the link is fine.
  */
 export function healthFromError(code: string | undefined): Health {

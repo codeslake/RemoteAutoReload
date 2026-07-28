@@ -15,14 +15,14 @@ test('Unavailable is the disconnected case and must not read as healthy', () => 
 	assert.equal(healthFromError('Unavailable'), 'unhealthy');
 });
 
-test('a missing provider means the remote side is gone', () => {
-	// The vscode-remote:// provider is unregistered when the connection drops.
-	assert.equal(healthFromError('ENOPRO'), 'unhealthy');
+test('a cancelled channel is the other disconnected shape', () => {
+	// A call cut off mid-flight surfaces as Unknown rather than Unavailable.
+	assert.equal(healthFromError('Unknown'), 'unhealthy');
 });
 
 test('an unrecognised or absent code counts against the connection', () => {
 	// A code we have never seen is not evidence that the link is fine.
-	for (const code of ['Unknown', 'SomethingNew', '', undefined]) {
+	for (const code of ['SomethingNew', 'WeirdCode', '', undefined]) {
 		assert.equal(healthFromError(code), 'unhealthy', `${String(code)} must not be read as healthy`);
 	}
 });
