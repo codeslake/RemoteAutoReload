@@ -8,6 +8,8 @@
 import * as vscode from 'vscode';
 import { execFile } from 'node:child_process';
 import { hostFromAuthority } from './authority';
+import { healthFromError } from './health';
+import type { Health } from './supervisor';
 
 /** The SSH host of a Remote-SSH window, e.g. `dev-box` — or undefined if this is not one. */
 export function sshHost(): string | undefined {
@@ -36,20 +38,29 @@ function probeTarget(): vscode.Uri | undefined {
  * A disconnected channel does not fail fast, it simply never answers, so the
  * timeout is what turns silence into an answer.
  */
-export async function checkHealth(timeoutMs: number): Promise<'healthy' | 'unhealthy'> {
+export async function checkHealth(timeoutMs: number): Promise<Health> {
 	const target = probeTarget();
 	if (!target) {
 		return 'unhealthy';
 	}
 
-	const timeout = new Promise<'unhealthy'>(resolve => setTimeout(() => resolve('unhealthy'), timeoutMs));
-	const stat = vscode.workspace.fs.stat(target).then(
+	let timer: NodeJS.Timeout | undefined;
+	const timeout = new Promise<Health>(resolve => {
+		timer = setTimeout(() => resolve('unhealthy'), timeoutMs);
+	});
+
+	const stat = Promise.resolve(vscode.workspace.fs.stat(target)).then(
 		() => 'healthy' as const,
-		// A reachable channel that says "no such file" is still a reachable channel.
-		(err: unknown) => (err instanceof vscode.FileSystemError ? 'healthy' : 'unhealthy'),
+		// Every workspace.fs failure arrives as a FileSystemError, so the class
+		// says nothing; only the code separates a reply from silence.
+		(err: unknown) => healthFromError(err instanceof vscode.FileSystemError ? err.code : undefined),
 	);
 
-	return Promise.race([stat, timeout]);
+	try {
+		return await Promise.race([stat, timeout]);
+	} finally {
+		clearTimeout(timer);
+	}
 }
 
 /** Runs a command, resolving to its success rather than throwing on failure. */
