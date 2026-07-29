@@ -34,6 +34,7 @@ function settings() {
 
 class Watcher {
 	private state: State = INITIAL;
+	private lastNote: string | undefined;
 	private disposed = false;
 	private readonly loop: Loop;
 
@@ -86,7 +87,6 @@ class Watcher {
 			return;
 		}
 
-		const before = this.state;
 		const outcome = await tick(
 			this.state,
 			{
@@ -103,11 +103,16 @@ class Watcher {
 		}
 
 		this.state = outcome.state;
-		if (outcome.note && (outcome.state.kind !== before.kind || outcome.action.kind !== 'none')) {
+		// Log a note the first time it is said, then stay quiet while it repeats.
+		// Keying on the note rather than the state kind is what makes an outage
+		// visibly count up: a window stuck at "unhealthy 1/13" reads as a dead
+		// watcher, which is the impression this extension least wants to give.
+		if (outcome.note && outcome.note !== this.lastNote) {
 			this.log.info(outcome.note);
 		} else if (outcome.note) {
 			this.log.debug(outcome.note);
 		}
+		this.lastNote = outcome.note;
 		this.render();
 
 		switch (outcome.action.kind) {
@@ -183,7 +188,8 @@ class Watcher {
 			idle: 'debug-pause',
 		}[this.state.kind];
 
-		this.status.text = `$(${icon}) ${this.target.label}`;
+		const detail = this.state.kind === 'degraded' ? ` ${this.state.ticks}` : '';
+		this.status.text = `$(${icon}) ${this.target.label}${detail}`;
 		this.status.tooltip = `RemoteAutoReload: ${this.describe()}`;
 		// Shown only when it has something to say, so a healthy window stays quiet.
 		if (this.state.kind === 'healthy') {
