@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="26" fill="#1e2430"/>
+  <g transform="translate(64,60)">
+    <!-- reload arc, open at the top so the arrowhead reads as motion -->
+    <path d="M 0 -32 A 32 32 0 1 0 28 -16"
+          fill="none" stroke="#4fc3f7" stroke-width="11" stroke-linecap="round"/>
+    <!-- arrowhead continuing the arc's direction, sitting outside the stroke -->
+    <path d="M 28 -16 l 3 -19 l -19 6 z" fill="#4fc3f7"/>
+  </g>
+  <!-- the remote host, dimmed: what the arc is reconnecting to -->
+  <rect x="46" y="96" width="36" height="14" rx="3" fill="#4a5568"/>
+</svg>
