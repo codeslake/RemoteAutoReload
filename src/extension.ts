@@ -13,6 +13,7 @@ import { INITIAL, applyCommand, tick, type Command, type Config, type State } fr
 import { checkHealth, checkHostReachable, isDirty, sshTarget } from './probes';
 import { Loop } from './loop';
 import { isVisible, statusFor } from './statusbar';
+import { removedSettingWarning } from './migration';
 import type { SshTarget } from './authority';
 
 const SECTION = 'remoteAutoReload';
@@ -164,7 +165,12 @@ class Watcher {
 	}
 
 	private render(): void {
-		Object.assign(this.status, statusFor(this.state, this.target.label));
+		// Assigned field by field rather than with Object.assign: this item is the
+		// only UI during an outage, and a rename that silently stopped updating it
+		// would be invisible. Explicit assignment makes that a compile error.
+		const { text, tooltip } = statusFor(this.state, this.target.label);
+		this.status.text = text;
+		this.status.tooltip = tooltip;
 		isVisible(this.state) ? this.status.show() : this.status.hide();
 	}
 }
@@ -189,6 +195,18 @@ export function activate(context: vscode.ExtensionContext): void {
 		);
 		return;
 	}
+
+	// Shown, not just logged: this is the one change that alters behaviour for
+	// someone who is not looking. `inspect` still reports a removed key's value.
+	void removedSettingWarning(
+		vscode.workspace.getConfiguration(SECTION).inspect<boolean>('enabled')?.globalValue,
+		context.globalState,
+	).then(removed => {
+		if (removed) {
+			log.warn(removed);
+			void vscode.window.showWarningMessage(removed);
+		}
+	});
 
 	// The one setting this extension cannot work around. Remote-SSH raises its
 	// connection error as a modal; at the default `native` that is an OS window,

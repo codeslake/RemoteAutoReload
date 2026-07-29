@@ -2,7 +2,7 @@
 	"name": "remote-auto-reload",
 	"displayName": "RemoteAutoReload",
 	"description": "Reloads a Remote-SSH window once its host is reachable again, so you stop clicking Retry after every VPN drop, sleep, and network change.",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"publisher": "codeslake",
 	"license": "MIT",
 	"repository": {
@@ -116,10 +116,10 @@
 		}
 	},
 	"scripts": {
-		"compile": "rm -rf out && tsc -p ./",
+		"compile": "tsc -p ./",
 		"watch": "tsc -watch -p ./",
-		"test": "npm run compile && node --test out/test/*.test.js",
-		"vscode:prepublish": "npm run compile"
+		"test": "npm run compile && node scripts/run-tests.mjs",
+		"vscode:prepublish": "node scripts/clean.mjs && npm run compile"
 	},
 	"devDependencies": {
 		"@types/node": "^22.0.0",
