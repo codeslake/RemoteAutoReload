@@ -70,6 +70,19 @@ When the connection drops, a status item appears — `Reconnecting to <host>` �
 and its tooltip says the window will reload itself, so the error dialog can be
 left alone. Once the host answers, the window reloads and both go away.
 
+A measured run, with the host taken away and given back:
+
+```
+00:47:15  Watching myhost
+00:47:23  host still unreachable, not spending the one resolve attempt
+          ← host comes back at 00:47:32
+00:47:42  host reachable, reloading
+00:47:53  Watching myhost
+```
+
+Eleven seconds from "the host is back" to a working window, and the error dialog
+goes with the reload. No clicks.
+
 With unsaved changes it asks instead of reloading, and asks **once**; dismissing
 means no until you run **Resume Watching This Window**.
 
