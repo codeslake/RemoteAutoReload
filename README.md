@@ -155,6 +155,60 @@ remote, kill it there (`pkill -f vscode-server`) and let it reinstall.
 **It asked once and never again.** That is intended: dismissing the notification
 means "no", and it holds until you resume. Run **Resume Watching This Window**.
 
+**The window reconnected but an error dialog is still on screen.** That modal is
+Remote-SSH's and cannot be dismissed from an extension. See
+[The error dialog this cannot cover](#the-error-dialog-this-cannot-cover) for
+why, and for the `preconnect` script that stops it appearing at all.
+
+## The error dialog this cannot cover
+
+There is one case the extension is powerless against, and it is worth knowing
+about because it looks like a failure of this extension:
+
+> **Could not establish connection to "host": Connecting with SSH timed out.**
+> `Close Remote` · `Retry` · `More Actions...`
+
+Remote-SSH raises that modal when a window's **first** resolve fails, and never
+retries that one. Two measured facts make it impossible to handle from inside an
+extension:
+
+- It appears about **30 ms** after the failure, and this extension activates in
+  the same instant (`onStartupFinished` fires right after the resolve settles).
+  There is no window in which to act first.
+- No VS Code API can dismiss another extension's modal, and `Retry` is only an
+  alias for `workbench.action.reloadWindow` — the very command this extension
+  already issues. Pressing it programmatically would buy nothing even if it were
+  possible.
+
+The extension still does its job underneath: once the host answers it reloads
+the window and the connection comes back. The modal is left over on screen and
+has to be closed by hand.
+
+### Preventing it instead
+
+Since the modal cannot be removed after the fact, keep the failure from
+happening. Remote-SSH runs a script of your choosing **before** it dials and
+waits for it to exit, so a script that blocks until the host answers means the
+first resolve never fails.
+
+[`contrib/wait-for-host.sh`](contrib/wait-for-host.sh) is that script. Edit the
+`HOST` line, drop it somewhere stable, and point Remote-SSH at it:
+
+```jsonc
+// settings.json
+"remote.SSH.preconnect": {
+    "my-remote": "/Users/you/.ssh/vscode/wait-for-host.sh"
+}
+```
+
+It costs about **0.2 s** when the host is up (a TCP probe, not a full ssh
+handshake) and blocks up to `PRECONNECT_WAIT_SECONDS` (default 180) when it is
+not, giving up with a message that says more than the timeout modal did.
+
+Two things to expect: Remote-SSH prompts once with *"Execute pre-connection
+script?"* — answer **Allow and Don't Ask Again** — and it passes no arguments,
+so the host is named inside the script and you want one copy per host.
+
 ## Relationship to Remreload
 
 This is a rewrite of [viveksjain/remreload](https://github.com/viveksjain/remreload)
