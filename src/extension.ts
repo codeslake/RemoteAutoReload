@@ -13,6 +13,7 @@ import { INITIAL, applyCommand, tick, type Command, type Config, type State } fr
 import { checkHealth, checkHostReachable, isDirty, sshTarget } from './probes';
 import { Loop } from './loop';
 import { nativeDialogWarning } from './dialogstyle';
+import { statusFor } from './statusbar';
 import type { SshTarget } from './authority';
 
 const SECTION = 'remoteAutoReload';
@@ -69,7 +70,7 @@ class Watcher {
 	/** Applies a user command and reports the resulting state. */
 	command(command: Command): void {
 		this.state = applyCommand(this.state, command);
-		this.log.info(`${command} -> ${this.describe()}`);
+		this.log.info(`${command} -> ${this.state.kind}`);
 		this.render();
 	}
 
@@ -137,10 +138,10 @@ class Watcher {
 	private async ask(reason: 'dirty' | 'configured'): Promise<void> {
 		const detail =
 			reason === 'dirty'
-				? 'Reloading would discard unsaved changes.'
-				: 'Reload to reconnect.';
+				? 'Reloading is the way back, but this window has unsaved changes and reloading discards them.'
+				: 'Reloading will reconnect it.';
 		const choice = await vscode.window.showWarningMessage(
-			`${this.target.label} is reachable again, but this window is still disconnected. ${detail}`,
+			`RemoteAutoReload: ${this.target.label} is reachable again, but this window is still disconnected. ${detail}`,
 			'Reload Window',
 			'Save All and Reload',
 			'Not Now',
@@ -168,38 +169,15 @@ class Watcher {
 		}
 	}
 
-	private describe(): string {
-		switch (this.state.kind) {
-			case 'starting':
-				return 'checking';
-			case 'healthy':
-				return 'connected';
-			case 'degraded':
-				return `disconnected (${this.state.ticks} failed checks)`;
-			case 'reloadPending':
-				return 'reload requested';
-			case 'idle':
-				return this.state.reason === 'paused' ? 'paused' : 'not reloading (declined)';
-		}
-	}
-
 	private render(): void {
-		const icon = {
-			starting: 'check',
-			healthy: 'check',
-			degraded: 'sync~spin',
-			reloadPending: 'debug-restart',
-			idle: 'debug-pause',
-		}[this.state.kind];
-
-		const detail = this.state.kind === 'degraded' ? ` ${this.state.ticks}` : '';
-		this.status.text = `$(${icon}) ${this.target.label}${detail}`;
-		this.status.tooltip = `RemoteAutoReload: ${this.describe()}`;
-		// Shown only when it has something to say, so a healthy window stays quiet.
-		if (this.state.kind === 'healthy' || this.state.kind === 'starting') {
-			this.status.hide();
-		} else {
+		const s = statusFor(this.state, this.target.label);
+		this.status.text = s.text;
+		this.status.tooltip = s.tooltip;
+		// Quiet while healthy: a status item that is always there stops being read.
+		if (s.visible) {
 			this.status.show();
+		} else {
+			this.status.hide();
 		}
 	}
 }
