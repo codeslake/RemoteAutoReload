@@ -1,7 +1,7 @@
 {
 	"name": "remote-auto-reload",
 	"displayName": "RemoteAutoReload",
-	"description": "Automatically reloads a Remote-SSH window when its connection is permanently lost and the host is reachable again.",
+	"description": "Reloads a Remote-SSH window once its host is reachable again, so you stop clicking Retry after every VPN drop, sleep, and network change.",
 	"version": "0.1.0",
 	"publisher": "codeslake",
 	"license": "MIT",
@@ -24,7 +24,8 @@
 		"ssh",
 		"remote-ssh",
 		"reconnect",
-		"reload"
+		"reload",
+		"remote development"
 	],
 	"main": "./out/extension.js",
 	"activationEvents": [
@@ -120,7 +121,7 @@
 					"type": "string",
 					"default": "",
 					"scope": "machine",
-					"markdownDescription": "Overrides how host reachability is probed. `${host}` becomes the ssh destination of the current window (including the user, e.g. `jun@box`) and `${port}` its port; both are shell-quoted. Leave empty to use `ssh -o BatchMode=yes -o ConnectTimeout=5 ${host} true`, which proves sshd is answering and accepts your key. It does not prove the VS Code server will start, so a host that is up with a wedged server is still reloaded into. Machine-scoped: a workspace cannot set this."
+					"markdownDescription": "Replaces the default reachability probe. `${host}` becomes the ssh destination (including the user, e.g. `me@box`) and `${port}` its port; both are quoted for your platform's shell. Leave empty to use `ssh -o BatchMode=yes -o ConnectTimeout=5 ${host} true`, which proves sshd answers and accepts your key. It does not prove the VS Code server will start. Machine-scoped: a workspace cannot set this."
 				}
 			}
 		}
@@ -135,5 +136,9 @@
 		"@types/node": "^22.0.0",
 		"@types/vscode": "~1.75.0",
 		"typescript": "^5.6.0"
+	},
+	"galleryBanner": {
+		"color": "#1e1e1e",
+		"theme": "dark"
 	}
 }

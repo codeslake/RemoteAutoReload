@@ -264,11 +264,11 @@ test('a slow remote is not a gone remote: unknown holds the state', async () => 
 	assert.deepEqual(state, degraded.state, 'no progress toward a reload, and no reset either');
 });
 
-test('the measured dev-box incident: a remote that stutters every two minutes is left alone', async () => {
-	// Taken from a real night of logs. The remote extension host went briefly
-	// unresponsive on a ~2-minute cycle (VS Code said so in its own log), the
-	// probe timed out each time, and three working windows were reloaded.
-	// Timings measured: ~14-38s unresponsive, ~75-120s apart.
+test('a remote that stutters every couple of minutes is left alone', async () => {
+	// Taken from a real night of logs: a loaded remote's extension host went
+	// briefly unresponsive on a ~2-minute cycle (VS Code says so in its own log),
+	// the probe timed out each time, and three working windows were reloaded.
+	// Measured: ~14-38s unresponsive, ~75-120s apart.
 	const STUTTER_TICKS = Math.ceil(38_000 / 5_000); // the longest stall seen
 	const CALM_TICKS = Math.ceil(75_000 / 5_000);
 

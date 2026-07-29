@@ -57,7 +57,7 @@ function decodeDescriptor(encoded: string): SshTarget | undefined {
 		: { destination, label: destination };
 }
 
-/** `ssh-remote+dev-box` -> that host. Any other remote kind yields undefined. */
+/** `ssh-remote+myhost` -> that host. Any other remote kind yields undefined. */
 export function sshTargetFromAuthority(authority: string | undefined): SshTarget | undefined {
 	if (!authority?.startsWith(SSH_PREFIX)) {
 		return undefined;

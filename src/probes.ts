@@ -8,6 +8,7 @@
 import * as vscode from 'vscode';
 import { execFile } from 'node:child_process';
 import { sshTargetFromAuthority, type SshTarget } from './authority';
+import { buildProbe } from './probecommand';
 import { healthFromError } from './health';
 import type { Health } from './supervisor';
 
@@ -84,27 +85,8 @@ function succeeds(file: string, args: string[], timeoutMs: number): Promise<bool
  * window that would have recovered into one that cannot.
  */
 export function checkHostReachable(target: SshTarget, timeoutMs: number, override: string): Promise<boolean> {
-	if (override.trim()) {
-		// The user's own machine-scoped command. A shell is what makes pipes and
-		// redirection work, which is the point of the escape hatch; the host is
-		// single-quoted so a hostname cannot end the quoting.
-		const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
-		// One pass, so a value that itself contains `${port}` is not rewritten by
-		// the next substitution.
-		const command = override.replace(/\$\{(host|port)\}/g, (_, key: string) =>
-			quote(key === 'host' ? target.destination : String(target.port ?? 22)),
-		);
-		return succeeds('/bin/sh', ['-c', command], timeoutMs);
-	}
-
-	const args = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5'];
-	if (target.port !== undefined) {
-		args.push('-p', String(target.port));
-	}
-	// `--` so a destination starting with '-' cannot be read as a flag.
-	args.push('--', target.destination, 'true');
-
-	return succeeds('ssh', args, timeoutMs);
+	const { file, args } = buildProbe(target, override, process.platform);
+	return succeeds(file, args, timeoutMs);
 }
 
 /** Whether any editor holds unsaved changes, including ones not currently visible. */
