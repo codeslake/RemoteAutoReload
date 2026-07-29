@@ -12,6 +12,7 @@ import * as vscode from 'vscode';
 import { INITIAL, applyCommand, tick, type Command, type Config, type State } from './supervisor';
 import { checkHealth, checkHostReachable, isDirty, sshTarget } from './probes';
 import { Loop } from './loop';
+import { nativeDialogWarning } from './dialogstyle';
 import type { SshTarget } from './authority';
 
 const SECTION = 'remoteAutoReload';
@@ -222,6 +223,16 @@ export function activate(context: vscode.ExtensionContext): void {
 				: `Not a Remote-SSH window (remoteName: ${vscode.env.remoteName ?? 'local'}), standing by.`,
 		);
 		return;
+	}
+
+	// The one setting this extension cannot work around. Said once at startup,
+	// in the log rather than a notification: the point is to explain a leftover
+	// dialog when someone goes looking, not to nag on every window.
+	const warning = nativeDialogWarning(
+		vscode.workspace.getConfiguration('window').get<string>('dialogStyle'),
+	);
+	if (warning) {
+		log.warn(warning);
 	}
 
 	const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);

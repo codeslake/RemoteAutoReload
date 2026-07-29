@@ -46,7 +46,9 @@ Every few seconds, in Remote-SSH windows only:
 4. **Would a reload cost you anything?** With unsaved changes it asks instead,
    and it asks **once** — dismissing means no.
 
-Only when all four line up does the window reload.
+Only when all four line up does the window reload. The reload is exactly what
+the dialog's **Retry** button does, which is the whole idea: you should not have
+to be at the keyboard to press it.
 
 ## Install
 
@@ -71,6 +73,20 @@ Requires VS Code 1.75+ and `ssh` on your `PATH`; Node 22+ only to build. The
 extension runs on the **local** machine, so install it locally, not in the
 remote. If you point Remote-SSH at a different ssh binary with
 `remote.SSH.path`, point `hostProbeCommand` at that one too.
+
+**Also set this**, or the reload leaves a dialog behind:
+
+```jsonc
+"window.dialogStyle": "custom"
+```
+
+Remote-SSH raises its "Could not establish connection" error as a modal. At the
+default `native` that modal is an OS window, so reloading the window reconnects
+*underneath* it and the error stays on screen — the connection is fixed but you
+still have a dialog to dismiss, which reads as the reload having done nothing.
+Set to `custom` the dialog belongs to the workbench, and the reload takes it away
+with the failure it described. The extension logs a warning if you leave it
+native.
 
 ## Settings
 
@@ -154,6 +170,13 @@ remote, kill it there (`pkill -f vscode-server`) and let it reinstall.
 
 **It asked once and never again.** That is intended: dismissing the notification
 means "no", and it holds until you resume. Run **Resume Watching This Window**.
+
+**The window reconnected but the error dialog is still there.** That is
+`window.dialogStyle` at its default. A native dialog is an OS window and outlives
+the reload that fixed the connection; set it to `custom` (see
+[Install](#install)) and it goes away with the reload. If you dismiss it
+meanwhile you will find the window already connected behind it — the log will
+show `host reachable, reloading` from before you touched anything.
 
 ## Relationship to Remreload
 
