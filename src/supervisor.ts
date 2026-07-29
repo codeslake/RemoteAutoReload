@@ -16,10 +16,18 @@
 export type Health = 'healthy' | 'unhealthy' | 'unknown';
 
 export type State =
+	/** Nothing observed yet. A window may be connected or may have never resolved. */
+	| { kind: 'starting' }
 	/** The remote channel answered on the last tick. */
 	| { kind: 'healthy' }
-	/** The channel has not answered for `ticks` consecutive observations. */
-	| { kind: 'degraded'; ticks: number }
+	/**
+	 * The channel has not answered for `ticks` consecutive observations.
+	 *
+	 * `everConnected` is false when the window has not answered even once, which
+	 * means its very first resolve failed. VS Code treats that as fatal and never
+	 * retries, so there is nothing to wait for.
+	 */
+	| { kind: 'degraded'; ticks: number; everConnected: boolean }
 	/** A reload or a prompt has been issued. Terminal: nothing is issued twice. */
 	| { kind: 'reloadPending' }
 	/**
@@ -76,7 +84,7 @@ export interface Outcome {
 	note?: string;
 }
 
-export const INITIAL: State = { kind: 'healthy' };
+export const INITIAL: State = { kind: 'starting' };
 
 /** Folds a user command into the state. Pure, so the caller cannot diverge from it. */
 export function applyCommand(_state: State, command: Command): State {
@@ -118,9 +126,11 @@ export async function tick(state: State, probes: Probes, config: Config): Promis
 		switch (state.kind) {
 			case 'healthy':
 				return unchanged();
+			case 'starting':
+				return { state: { kind: 'healthy' }, action: { kind: 'none' } };
 			case 'degraded':
 			case 'reloadPending':
-				return { state: INITIAL, action: { kind: 'none' }, note: 'connection recovered' };
+				return { state: { kind: 'healthy' }, action: { kind: 'none' }, note: 'connection recovered' };
 		}
 	}
 
@@ -129,10 +139,22 @@ export async function tick(state: State, probes: Probes, config: Config): Promis
 		return unchanged();
 	}
 
+	// A window that has answered at least once is one VS Code will keep trying to
+	// reconnect, patiently and well, so the grace period is worth spending. A
+	// window that never answered failed its first resolve, which VS Code makes
+	// fatal and never retries — waiting there buys nothing and costs the user a
+	// modal error dialog, which appears well before a sane grace period is up.
+	// `starting` means the very first observation is already unhealthy, so this
+	// window never connected at all. Anything else got here from `healthy`.
+	const everConnected = state.kind === 'degraded' ? state.everConnected : state.kind !== 'starting';
 	const ticks = (state.kind === 'degraded' ? state.ticks : 0) + 1;
-	if (ticks <= config.graceTicks) {
+	if (!everConnected) {
+		// Nothing to wait for: VS Code will not retry a failed first resolve, and
+		// its modal error dialog lands long before any sane grace period is up.
+		// Fall through to the reachability check and reload as soon as it passes.
+	} else if (ticks <= config.graceTicks) {
 		return {
-			state: { kind: 'degraded', ticks },
+			state: { kind: 'degraded', ticks, everConnected },
 			action: { kind: 'none' },
 			note: `unhealthy ${ticks}/${config.graceTicks + 1}, waiting for VS Code to reconnect on its own`,
 		};
@@ -143,7 +165,7 @@ export async function tick(state: State, probes: Probes, config: Config): Promis
 	const reachable = await probes.hostReachable().catch(() => false);
 	if (!reachable) {
 		return {
-			state: { kind: 'degraded', ticks },
+			state: { kind: 'degraded', ticks, everConnected },
 			action: { kind: 'none' },
 			note: 'host still unreachable, not spending the one resolve attempt',
 		};

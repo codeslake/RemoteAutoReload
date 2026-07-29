@@ -169,6 +169,8 @@ class Watcher {
 
 	private describe(): string {
 		switch (this.state.kind) {
+			case 'starting':
+				return 'checking';
 			case 'healthy':
 				return 'connected';
 			case 'degraded':
@@ -182,6 +184,7 @@ class Watcher {
 
 	private render(): void {
 		const icon = {
+			starting: 'check',
 			healthy: 'check',
 			degraded: 'sync~spin',
 			reloadPending: 'debug-restart',
@@ -192,7 +195,7 @@ class Watcher {
 		this.status.text = `$(${icon}) ${this.target.label}${detail}`;
 		this.status.tooltip = `RemoteAutoReload: ${this.describe()}`;
 		// Shown only when it has something to say, so a healthy window stays quiet.
-		if (this.state.kind === 'healthy') {
+		if (this.state.kind === 'healthy' || this.state.kind === 'starting') {
 			this.status.hide();
 		} else {
 			this.status.show();

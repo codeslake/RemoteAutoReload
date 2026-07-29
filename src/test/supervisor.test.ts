@@ -61,15 +61,18 @@ async function run(
 	return { state, actions };
 }
 
+/** A window that has answered at least once, which is the ordinary case. */
+const CONNECTED: State = { kind: 'healthy' };
+
 const reloads = (actions: Action[]) => actions.filter(a => a.kind === 'reload');
 const prompts = (actions: Action[]) => actions.filter(a => a.kind === 'prompt');
 
 test('a healthy window is left alone and never probes the host', async () => {
 	const { probes: p, calls } = countingProbes({ health: 'healthy' });
 
-	const { state, actions } = await run(INITIAL, p, 10);
+	const { state, actions } = await run(CONNECTED, p, 10);
 
-	assert.deepEqual(state, INITIAL);
+	assert.deepEqual(state, CONNECTED);
 	assert.deepEqual(actions.map(a => a.kind), Array(10).fill('none'));
 	assert.equal(calls.hostReachable, 0, 'a healthy window must not spawn an ssh probe');
 });
@@ -77,16 +80,35 @@ test('a healthy window is left alone and never probes the host', async () => {
 test('a brief outage does not reload: the window is given the grace period to heal itself', async () => {
 	const { probes: p, calls } = countingProbes({ health: 'unhealthy' });
 
-	const { state, actions } = await run(INITIAL, p, CONFIG.graceTicks - 1);
+	const { state, actions } = await run(CONNECTED, p, CONFIG.graceTicks - 1);
 
 	assert.deepEqual(actions.map(a => a.kind), Array(CONFIG.graceTicks - 1).fill('none'));
-	assert.deepEqual(state, { kind: 'degraded', ticks: CONFIG.graceTicks - 1 } satisfies State);
+	assert.deepEqual(state, { kind: 'degraded', ticks: CONFIG.graceTicks - 1, everConnected: true } satisfies State);
 	assert.equal(calls.hostReachable, 0, 'the host is not probed until the grace period is spent');
+});
+
+test('a window that never connected does not wait out the grace period', async () => {
+	// A window whose FIRST resolve failed is the case this extension exists for:
+	// VS Code turns that failure into a fatal error and never retries, so the
+	// grace period buys nothing and costs everything — the modal error dialog
+	// appears about 32s in, and waiting ~60s guarantees the user sees it.
+	const { state, actions } = await run(INITIAL, probes({ health: 'unhealthy' }), 2);
+
+	assert.equal(actions[0]?.kind, 'reload', 'reload on the first observation, before the dialog can appear');
+	assert.deepEqual(state, { kind: 'reloadPending' } satisfies State);
+});
+
+test('a window that was connected still waits: that outage may heal itself', async () => {
+	// Reached healthy first, so VS Code owns the reconnect and is good at it.
+	const connected = await run(INITIAL, probes({ health: 'healthy' }), 1);
+	const { actions } = await run(connected.state, probes({ health: 'unhealthy' }), CONFIG.graceTicks);
+
+	assert.deepEqual(actions.map(a => a.kind), Array(CONFIG.graceTicks).fill('none'));
 });
 
 test('an outage that outlives the grace period reloads, once the host answers', async () => {
 	// graceTicks observations are spent waiting; the reload comes on the next one.
-	const { state, actions } = await run(INITIAL, probes({ health: 'unhealthy' }), CONFIG.graceTicks + 1);
+	const { state, actions } = await run(CONNECTED, probes({ health: 'unhealthy' }), CONFIG.graceTicks + 1);
 
 	assert.deepEqual(actions.map(a => a.kind), [...Array(CONFIG.graceTicks).fill('none'), 'reload']);
 	assert.deepEqual(state, { kind: 'reloadPending' } satisfies State);
@@ -158,7 +180,7 @@ test('a window that heals itself is not reloaded, however long it was degraded',
 	const p = probes({ health: async () => health });
 
 	// Far past the grace period, but recovering before the host answers.
-	const degraded = await run(INITIAL, probes({ health: 'unhealthy', hostReachable: false }), 50);
+	const degraded = await run(CONNECTED, probes({ health: 'unhealthy', hostReachable: false }), 50);
 	health = 'healthy';
 	const { state, actions } = await run(degraded.state, p, 5);
 
@@ -167,7 +189,7 @@ test('a window that heals itself is not reloaded, however long it was degraded',
 });
 
 test('a healed window degrades from scratch: the old outage does not count toward the new one', async () => {
-	const degraded = await run(INITIAL, probes({ health: 'unhealthy', hostReachable: false }), CONFIG.graceTicks - 1);
+	const degraded = await run(CONNECTED, probes({ health: 'unhealthy', hostReachable: false }), CONFIG.graceTicks - 1);
 	const recovered = await run(degraded.state, probes({ health: 'healthy' }), 1);
 
 	const { actions } = await run(recovered.state, probes({ health: 'unhealthy' }), 1);
@@ -250,7 +272,7 @@ test('the measured dev-box incident: a remote that stutters every two minutes is
 	const STUTTER_TICKS = Math.ceil(38_000 / 5_000); // the longest stall seen
 	const CALM_TICKS = Math.ceil(75_000 / 5_000);
 
-	let state = INITIAL;
+	let state: State = CONNECTED;
 	const actions: Action[] = [];
 	for (let cycle = 0; cycle < 20; cycle++) {
 		for (const [health, count] of [
@@ -265,14 +287,14 @@ test('the measured dev-box incident: a remote that stutters every two minutes is
 
 	assert.equal(reloads(actions).length, 0, 'a stuttering remote must never be reloaded');
 	assert.equal(prompts(actions).length, 0);
-	assert.deepEqual(state, INITIAL);
+	assert.deepEqual(state, CONNECTED);
 });
 
 test('a healthy window that goes slow is not marched toward a reload', async () => {
-	const { state, actions } = await run(INITIAL, probes({ health: 'unknown' }), 50);
+	const { state, actions } = await run(CONNECTED, probes({ health: 'unknown' }), 50);
 
 	assert.equal(reloads(actions).length, 0);
-	assert.deepEqual(state, INITIAL);
+	assert.deepEqual(state, CONNECTED, 'no answer changes nothing');
 });
 
 test('a health probe that fails is not evidence either way: the window holds its state', async () => {
