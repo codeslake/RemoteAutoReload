@@ -53,11 +53,6 @@
 				"category": "RemoteAutoReload"
 			},
 			{
-				"command": "remoteAutoReload.reloadNow",
-				"title": "Reload Window Now",
-				"category": "RemoteAutoReload"
-			},
-			{
 				"command": "remoteAutoReload.pause",
 				"title": "Pause Watching This Window",
 				"category": "RemoteAutoReload"
@@ -71,12 +66,6 @@
 		"configuration": {
 			"title": "RemoteAutoReload",
 			"properties": {
-				"remoteAutoReload.enabled": {
-					"type": "boolean",
-					"default": true,
-					"scope": "machine",
-					"description": "Watch Remote-SSH windows and reload them when the connection is permanently lost."
-				},
 				"remoteAutoReload.pollIntervalMs": {
 					"type": "number",
 					"default": 5000,
@@ -127,7 +116,7 @@
 		}
 	},
 	"scripts": {
-		"compile": "tsc -p ./",
+		"compile": "rm -rf out && tsc -p ./",
 		"watch": "tsc -watch -p ./",
 		"test": "npm run compile && node --test out/test/*.test.js",
 		"vscode:prepublish": "npm run compile"

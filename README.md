@@ -46,7 +46,6 @@ All machine-scoped: a workspace you open cannot change them.
 
 | Setting | Default | |
 |---|---|---|
-| `enabled` | `true` | Master switch. |
 | `pollIntervalMs` | `5000` | How often to check. |
 | `graceTicks` | `12` | Failed checks to wait out before reloading. Counted in checks, not seconds, so sleeping through them does not skip them. |
 | `healthTimeoutMs` | `10000` | A slower check is inconclusive, not failed — a dead channel refuses at once, so a slow one means a busy remote. |
@@ -60,7 +59,9 @@ Prefix each with `remoteAutoReload.`, e.g. `"remoteAutoReload.graceTicks": 20`.
 ## Commands
 
 Under **RemoteAutoReload** in the command palette: **Show Log**, **Check
-Connection Now**, **Reload Window Now**, **Pause / Resume Watching This Window**.
+Connection Now**, **Pause / Resume Watching This Window**.
+
+To reload by hand, use VS Code's own **Developer: Reload Window**.
 
 ## What you will see
 
@@ -148,6 +149,9 @@ encoded form), `health.ts` (what a filesystem error says about the connection),
 `probecommand.ts` (the probe command line and its quoting), `loop.ts` (one tick
 at a time), `statusbar.ts` (the wording). `probes.ts` answers the policy's
 questions using VS Code and `ssh`; `extension.ts` is wiring.
+
+To turn it off, disable the extension the usual way, or **Pause Watching This
+Window** for just one window.
 
 ## License
 

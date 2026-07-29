@@ -14,15 +14,18 @@ export interface StatusText {
 	text: string;
 	/** Hover text. Says what happens next, since the label has no room to. */
 	tooltip: string;
-	/** A healthy window says nothing at all. */
-	visible: boolean;
+}
+
+/** A healthy window says nothing at all: an item always there stops being read. */
+export function isVisible(state: State): boolean {
+	return state.kind !== 'healthy' && state.kind !== 'starting';
 }
 
 export function statusFor(state: State, host: string): StatusText {
 	switch (state.kind) {
 		case 'starting':
 		case 'healthy':
-			return { text: `$(check) ${host}`, tooltip: `Connected to ${host}.`, visible: false };
+			return { text: `$(check) ${host}`, tooltip: `Connected to ${host}.` };
 
 		case 'degraded':
 			return {
@@ -31,14 +34,12 @@ export function statusFor(state: State, host: string): StatusText {
 					`${host} is not answering (${state.ticks} failed ${state.ticks === 1 ? 'check' : 'checks'}).\n` +
 					'This window will reload itself as soon as the host is reachable, so any ' +
 					'connection error dialog can be left alone.',
-				visible: true,
 			};
 
 		case 'reloadPending':
 			return {
 				text: `$(debug-restart) Reloading ${host}`,
 				tooltip: `${host} answered. Reloading this window to reconnect.`,
-				visible: true,
 			};
 
 		case 'idle':
@@ -46,14 +47,12 @@ export function statusFor(state: State, host: string): StatusText {
 				? {
 						text: `$(debug-pause) ${host} paused`,
 						tooltip: `Not watching ${host}. Run "RemoteAutoReload: Resume Watching This Window" to start again.`,
-						visible: true,
 					}
 				: {
 						text: `$(debug-pause) ${host} not reloading`,
 						tooltip:
 							`You declined the reload, so ${host} is left alone even when it comes back.\n` +
 							'Run "RemoteAutoReload: Resume Watching This Window" to change that.',
-						visible: true,
 					};
 	}
 }

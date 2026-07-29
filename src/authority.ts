@@ -8,6 +8,14 @@
 
 const SSH_PREFIX = 'ssh-remote+';
 
+/**
+ * The shape of Remote-SSH's encoded form: the hex of a JSON object, so always
+ * the hex of '{' and then whole bytes. Requiring the `7b` keeps ordinary
+ * hex-looking hostnames — `cafe`, `deadbeef`, `1234` — from being mistaken for
+ * an encoding, which would leave their owners with an inert extension.
+ */
+const LOOKS_ENCODED = /^7b(?:[0-9a-f]{2})+$/i;
+
 export interface SshTarget {
 	/** What to hand ssh, e.g. `jun@box`. */
 	destination: string;
@@ -27,11 +35,7 @@ export interface SshTarget {
  * `user@host`, on a port, or to a host with a capital letter.
  */
 function decodeDescriptor(encoded: string): SshTarget | undefined {
-	// The encoding is always the hex of a JSON object, so it always begins with
-	// the hex of '{'. Requiring that keeps ordinary hex-looking hostnames —
-	// `cafe`, `deadbeef`, `1234` — from being mistaken for an encoding and
-	// refused, which would leave their owners with an inert extension.
-	if (!/^7b(?:[0-9a-f]{2})+$/i.test(encoded)) {
+	if (!LOOKS_ENCODED.test(encoded)) {
 		return undefined;
 	}
 
@@ -77,5 +81,5 @@ export function sshTargetFromAuthority(authority: string | undefined): SshTarget
 	// Something that opens like an encoding but does not decode is refused rather
 	// than guessed at: probing an invented host answers confidently about a
 	// machine nobody asked about. Anything else is a plain hostname.
-	return /^7b(?:[0-9a-f]{2})+$/i.test(rest) ? undefined : { destination: rest, label: rest };
+	return LOOKS_ENCODED.test(rest) ? undefined : { destination: rest, label: rest };
 }

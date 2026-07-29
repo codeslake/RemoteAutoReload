@@ -12,8 +12,7 @@ import * as vscode from 'vscode';
 import { INITIAL, applyCommand, tick, type Command, type Config, type State } from './supervisor';
 import { checkHealth, checkHostReachable, isDirty, sshTarget } from './probes';
 import { Loop } from './loop';
-import { nativeDialogWarning } from './dialogstyle';
-import { statusFor } from './statusbar';
+import { isVisible, statusFor } from './statusbar';
 import type { SshTarget } from './authority';
 
 const SECTION = 'remoteAutoReload';
@@ -21,7 +20,6 @@ const SECTION = 'remoteAutoReload';
 function settings() {
 	const c = vscode.workspace.getConfiguration(SECTION);
 	return {
-		enabled: c.get<boolean>('enabled', true),
 		pollIntervalMs: c.get<number>('pollIntervalMs', 5000),
 		healthTimeoutMs: c.get<number>('healthTimeoutMs', 10_000),
 		hostProbeTimeoutMs: c.get<number>('hostProbeTimeoutMs', 8000),
@@ -85,10 +83,6 @@ class Watcher {
 		}
 
 		const config = settings();
-		if (!config.enabled) {
-			return;
-		}
-
 		const outcome = await tick(
 			this.state,
 			{
@@ -170,15 +164,8 @@ class Watcher {
 	}
 
 	private render(): void {
-		const s = statusFor(this.state, this.target.label);
-		this.status.text = s.text;
-		this.status.tooltip = s.tooltip;
-		// Quiet while healthy: a status item that is always there stops being read.
-		if (s.visible) {
-			this.status.show();
-		} else {
-			this.status.hide();
-		}
+		Object.assign(this.status, statusFor(this.state, this.target.label));
+		isVisible(this.state) ? this.status.show() : this.status.hide();
 	}
 }
 
@@ -203,14 +190,17 @@ export function activate(context: vscode.ExtensionContext): void {
 		return;
 	}
 
-	// The one setting this extension cannot work around. Said once at startup,
-	// in the log rather than a notification: the point is to explain a leftover
-	// dialog when someone goes looking, not to nag on every window.
-	const warning = nativeDialogWarning(
-		vscode.workspace.getConfiguration('window').get<string>('dialogStyle'),
-	);
-	if (warning) {
-		log.warn(warning);
+	// The one setting this extension cannot work around. Remote-SSH raises its
+	// connection error as a modal; at the default `native` that is an OS window,
+	// so a reload reconnects underneath it and the error stays on screen. Said
+	// once at startup, in the log rather than a notification: it should explain a
+	// leftover dialog when someone goes looking, not nag on every window.
+	if (vscode.workspace.getConfiguration('window').get<string>('dialogStyle') !== 'custom') {
+		log.warn(
+			'Set "window.dialogStyle": "custom" so a reload can clear the connection-error dialog. ' +
+				'Left native, that dialog is an OS window: this extension reconnects underneath it and ' +
+				'the error stays on screen.',
+		);
 	}
 
 	const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -220,9 +210,6 @@ export function activate(context: vscode.ExtensionContext): void {
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand(`${SECTION}.checkNow`, () => watcher.checkNow()),
-		vscode.commands.registerCommand(`${SECTION}.reloadNow`, () =>
-			vscode.commands.executeCommand('workbench.action.reloadWindow'),
-		),
 		vscode.commands.registerCommand(`${SECTION}.pause`, () => watcher.command('pause')),
 		vscode.commands.registerCommand(`${SECTION}.resume`, () => watcher.command('resume')),
 	);

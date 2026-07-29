@@ -1,13 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { statusFor } from '../statusbar';
+import { statusFor, isVisible } from '../statusbar';
 import type { State } from '../supervisor';
 
 const HOST = 'dev-box';
 
 test('a healthy window says nothing', () => {
 	for (const state of [{ kind: 'healthy' }, { kind: 'starting' }] satisfies State[]) {
-		assert.equal(statusFor(state, HOST).visible, false);
+		assert.equal(isVisible(state), false);
 	}
 });
 
@@ -16,7 +16,7 @@ test('a disconnected window says someone is on it, and that the dialog can be ig
 	// dialog VS Code just raised does not need them to do anything.
 	const s = statusFor({ kind: 'degraded', ticks: 3, everConnected: true }, HOST);
 
-	assert.equal(s.visible, true);
+	assert.equal(isVisible({ kind: 'degraded', ticks: 3, everConnected: true }), true);
 	assert.match(s.text, /Reconnecting/, 'the label says what is happening, not just a number');
 	assert.match(s.text, new RegExp(HOST));
 	assert.match(s.tooltip, /reload itself/, 'the tooltip promises the reload');
@@ -29,10 +29,8 @@ test('the failed-check count reads as English, singular and plural', () => {
 });
 
 test('a pending reload says so, so the window blink is not a surprise', () => {
-	const s = statusFor({ kind: 'reloadPending' }, HOST);
-
-	assert.equal(s.visible, true);
-	assert.match(s.text, /Reloading/);
+	assert.equal(isVisible({ kind: 'reloadPending' }), true);
+	assert.match(statusFor({ kind: 'reloadPending' }, HOST).text, /Reloading/);
 });
 
 test('a paused window and a declined one are told apart', () => {
@@ -40,8 +38,10 @@ test('a paused window and a declined one are told apart', () => {
 	const declined = statusFor({ kind: 'idle', reason: 'declined' }, HOST);
 
 	assert.notEqual(paused.text, declined.text, 'the labels distinguish them');
+	for (const state of [{ kind: 'idle', reason: 'paused' }, { kind: 'idle', reason: 'declined' }] satisfies State[]) {
+		assert.equal(isVisible(state), true);
+	}
 	for (const s of [paused, declined]) {
-		assert.equal(s.visible, true);
 		assert.match(s.tooltip, /Resume Watching This Window/, 'both say how to undo it');
 	}
 });
